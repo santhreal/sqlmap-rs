@@ -1,7 +1,10 @@
 # sqlmap-rs
 
 [![Crates.io](https://img.shields.io/crates/v/sqlmap-rs.svg)](https://crates.io/crates/sqlmap-rs)
+[![Documentation](https://docs.rs/sqlmap-rs/badge.svg)](https://docs.rs/sqlmap-rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Available on Crates.io:** [https://crates.io/crates/sqlmap-rs](https://crates.io/crates/sqlmap-rs)
 
 A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL injection testing tool.
 
