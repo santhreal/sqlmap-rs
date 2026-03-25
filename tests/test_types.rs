@@ -1,24 +1,25 @@
 use sqlmap_rs::types::{DataResponse, NewTaskResponse, StatusResponse};
+use sqlmap_rs::{SqlmapOptions, OutputFormat, SqlmapFinding};
 
 #[test]
 fn test_new_task_parsing() {
     let raw = r#"{"success": true, "taskid": "5f1a3b2k"}"#;
-    let resp: NewTaskResponse = serde_json::from_str(raw).unwrap();
+    let resp: NewTaskResponse = serde_json::from_str(raw).expect("parse");
     assert!(resp.success);
-    assert_eq!(resp.taskid.unwrap(), "5f1a3b2k");
+    assert_eq!(resp.taskid.as_deref(), Some("5f1a3b2k"));
 }
 
 #[test]
 fn test_status_parsing() {
     let raw = r#"{"status": "running", "returncode": null, "success": true}"#;
-    let resp: StatusResponse = serde_json::from_str(raw).unwrap();
+    let resp: StatusResponse = serde_json::from_str(raw).expect("parse");
     assert!(resp.success);
-    assert_eq!(resp.status.unwrap(), "running");
+    assert_eq!(resp.status.as_deref(), Some("running"));
     assert_eq!(resp.returncode, None);
-    
+
     let raw_term = r#"{"status": "terminated", "returncode": 0, "success": true}"#;
-    let term: StatusResponse = serde_json::from_str(raw_term).unwrap();
-    assert_eq!(term.status.unwrap(), "terminated");
+    let term: StatusResponse = serde_json::from_str(raw_term).expect("parse");
+    assert_eq!(term.status.as_deref(), Some("terminated"));
     assert_eq!(term.returncode, Some(0));
 }
 
@@ -46,13 +47,68 @@ fn test_data_extraction() {
         "success": true
     }"#;
 
-    let resp: DataResponse = serde_json::from_str(raw).expect("Could not parse data chunk");
+    let resp: DataResponse = serde_json::from_str(raw).expect("parse");
     assert!(resp.success);
-    
-    let chunk = &resp.data.unwrap()[0];
+
+    let chunk = &resp.data.as_ref().expect("data")[0];
     assert_eq!(chunk.r#type, 1);
-    
-    let injection_data = &chunk.value[0];
-    assert_eq!(injection_data["parameter"], "id");
-    assert_eq!(injection_data["dbms"], "MySQL");
+
+    let findings = resp.findings();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].parameter, "id");
+}
+
+#[test]
+fn test_builder_api() {
+    let opts = SqlmapOptions::builder()
+        .url("http://test.com?id=1")
+        .level(5)
+        .risk(3)
+        .batch(true)
+        .threads(8)
+        .tamper("space2comment,between")
+        .tor(true)
+        .tor_port(9050)
+        .crawl_depth(3)
+        .dump_all(true)
+        .random_agent(true)
+        .build();
+
+    let json = serde_json::to_string(&opts).expect("serialize");
+    assert!(json.contains("\"level\":5"));
+    assert!(json.contains("\"risk\":3"));
+    assert!(json.contains("\"tor\":true"));
+    assert!(json.contains("\"torPort\":9050"));
+    assert!(json.contains("\"crawlDepth\":3"));
+    assert!(json.contains("\"dumpAll\":true"));
+    assert!(json.contains("\"randomAgent\":true"));
+}
+
+#[test]
+fn test_output_formats() {
+    let findings = vec![SqlmapFinding::new(
+        "id",
+        "error-based",
+        "' OR 1=1--",
+        serde_json::json!({}),
+    )];
+
+    let json = sqlmap_rs::types::format_findings(&findings, OutputFormat::Json);
+    assert!(json.contains("error-based"));
+
+    let csv = sqlmap_rs::types::format_findings(&findings, OutputFormat::Csv);
+    assert!(csv.starts_with("parameter,"));
+
+    let md = sqlmap_rs::types::format_findings(&findings, OutputFormat::Markdown);
+    assert!(md.contains("| Parameter |"));
+
+    let plain = sqlmap_rs::types::format_findings(&findings, OutputFormat::Plain);
+    assert!(plain.contains("error-based"));
+}
+
+#[test]
+fn test_is_available_static_method() {
+    // This test just verifies the method exists and doesn't panic.
+    let _ = sqlmap_rs::SqlmapEngine::is_available();
+    let _ = sqlmap_rs::SqlmapEngine::is_available_at("/nonexistent/path");
 }

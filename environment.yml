@@ -1,0 +1,15 @@
+# Conda environment for sqlmap-rs
+#
+# Create:  conda env create -f environment.yml
+# Activate: conda activate sqlmap-env
+# Verify:   sqlmapapi -h
+#
+name: sqlmap-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - sqlmap

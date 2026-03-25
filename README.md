@@ -8,59 +8,123 @@
 
 A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL injection testing tool.
 
-Instead of parsing messy command-line outputs, `sqlmap-rs` spawns Sqlmap's native REST server (`sqlmapapi.py`) in the background and communicates via a strictly typed Tokio JSON pipeline. This allows you to launch thousands of concurrent fuzzing tasks absolutely panic-free, securely mapping memory to RAII drops.
+`sqlmap-rs` spawns sqlmap's native REST server (`sqlmapapi.py`) and communicates via a strictly-typed Tokio JSON pipeline. Tasks are RAII-managed — memory is reclaimed automatically on drop.
+
+## Features
+
+- **Full API coverage** — start, stop, kill, log, data, option introspection
+- **Builder pattern** — fluent `SqlmapOptions::builder()` with 40+ options
+- **Multi-format output** — JSON, CSV, Markdown, and plain text
+- **RAII lifecycle** — tasks cleaned up on drop, daemon killed on engine drop
+- **Port conflict detection** — prevents silent connection to wrong daemons
+- **Configurable polling** — custom intervals and HTTP timeouts
 
 ## Installation
 
-Add this to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-sqlmap-rs = "0.1.0"
+sqlmap-rs = "0.2.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
-*Prerequisite: `python3` and `sqlmap` (specifically `sqlmapapi`) must be in your system `$PATH`.*
+*Prerequisite: `sqlmapapi` must be in your system `$PATH`.*
+
+## Setup (one-command)
+
+**Option A: Conda** (recommended for isolation)
+```bash
+conda env create -f environment.yml
+conda activate sqlmap-env
+```
+
+**Option B: Setup script** (auto-detects or installs conda + sqlmap)
+```bash
+./setup.sh
+# or with custom env name:
+./setup.sh my-project-env
+```
+
+**Option C: Manual**
+```bash
+pip install sqlmap
+# verify:
+sqlmapapi -h
+```
 
 ## Quick Start
 
 ```rust
-use sqlmap_rs::{SqlmapEngine, SqlmapOptions};
+use sqlmap_rs::{SqlmapEngine, SqlmapOptions, OutputFormat};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Boot the daemon locally on port 8775. It automatically shuts down when `engine` drops.
+    // 1. Boot the daemon — auto-shut-down on drop
     let engine = SqlmapEngine::new(8775, true, None).await?;
 
-    // 2. Request an isolated scanning task identifier
-    let task = engine.create_task(&SqlmapOptions {
-        url: Some("http://example.com/api?id=1".into()),
-        level: Some(3),
-        risk: Some(2),
-        ..Default::default()
-    }).await?;
+    // 2. Configure scan with the builder pattern
+    let opts = SqlmapOptions::builder()
+        .url("http://example.com/api?id=1")
+        .level(3)
+        .risk(2)
+        .batch(true)
+        .threads(4)
+        .build();
 
-    // 3. Fire the payload testing
+    // 3. Create and run the task
+    let task = engine.create_task(&opts).await?;
     task.start().await?;
-
-    // 4. Poll and wait for completion securely
     task.wait_for_completion(300).await?;
 
-    // 5. Extract results structured in strictly typed JSON structs
-    let results = task.fetch_data().await?;
-    if let Some(data) = results.data {
-        println!("Found {} blocks of injections!", data.len());
-    }
+    // 4. Fetch and format results
+    let data = task.fetch_data().await?;
+    let findings = data.findings();
+
+    println!("{}", sqlmap_rs::types::format_findings(&findings, OutputFormat::Plain));
 
     Ok(())
 }
 ```
 
+## Scan Lifecycle Control
+
+```rust
+// Gracefully stop a running scan
+task.stop().await?;
+
+// Force-kill a scan
+task.kill().await?;
+
+// Retrieve execution logs
+let logs = task.fetch_log().await?;
+
+// Inspect configured options
+let options = task.list_options().await?;
+```
+
+## Advanced Options
+
+The builder covers 40+ sqlmap options including tamper scripts, Tor routing, crawling, second-order injection, and file I/O:
+
+```rust
+let opts = SqlmapOptions::builder()
+    .url("http://target.com/page?id=1")
+    .tamper("space2comment,between")
+    .tor(true)
+    .tor_port(9050)
+    .crawl_depth(3)
+    .second_url("http://target.com/result")
+    .prefix("')")
+    .suffix("-- -")
+    .get_dbs(true)
+    .dump_all(true)
+    .build();
+```
+
 ## Security & Memory
 
-This binding follows modern Rust system safety patterns:
-- When the `SqlmapTask` leaves scope, a silent background Tokio thread automatically reclaims the memory on the Python daemon by deleting the specific execution context.
-- When the `SqlmapEngine` leaves scope at the end of your program, the `std::process::Child` is sent a kill signal and immediately wiped from the host system, guaranteeing zero orphaned daemon processes.
+- **Task Drop**: When `SqlmapTask` leaves scope, a background task deletes the execution context from the daemon. Uses `Handle::try_current()` to avoid panics if no runtime is active.
+- **Engine Drop**: When `SqlmapEngine` is dropped, the daemon subprocess receives a kill signal.
+- **Port Safety**: The engine detects port conflicts before spawning, preventing accidental connection to unrelated services.
 
 ## License
 
