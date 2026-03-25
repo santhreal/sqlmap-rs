@@ -1,6 +1,6 @@
 [package]
 name = "sqlmap-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Type-safe asynchronous wrapper for the sqlmap REST API (sqlmapapi)"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
