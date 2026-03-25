@@ -5,7 +5,6 @@ edition = "2021"
 description = "Type-safe asynchronous wrapper for the sqlmap REST API (sqlmapapi)"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
 license = "MIT"
-publish = false
 
 [dependencies]
 async-trait = "0.1.80"
