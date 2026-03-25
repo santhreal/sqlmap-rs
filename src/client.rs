@@ -176,6 +176,24 @@ impl<'a> Drop for SqlmapTask<'a> {
     }
 }
 
+impl SqlmapEngine {
+    /// Check if sqlmapapi is available on this system.
+    pub fn is_available() -> bool {
+        std::process::Command::new("sqlmapapi")
+            .arg("-h")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok()
+            || std::process::Command::new("python3")
+                .args(["-c", "import sqlmap"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok()
+    }
+}
+
 impl Drop for SqlmapEngine {
     fn drop(&mut self) {
         if let Some(mut proc) = self._process.take() {
