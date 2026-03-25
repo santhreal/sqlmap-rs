@@ -66,6 +66,49 @@ pub struct SqlmapFinding {
     pub details: serde_json::Value,
 }
 
+impl DataResponse {
+    /// Extract structured findings from the raw data chunks.
+    ///
+    /// Type 1 chunks contain vulnerability data. This parses them into
+    /// `SqlmapFinding` structs with parameter, type, payload, and details.
+    pub fn findings(&self) -> Vec<SqlmapFinding> {
+        let Some(ref chunks) = self.data else { return vec![] };
+        let mut findings = Vec::new();
+
+        for chunk in chunks {
+            // Type 1 = vulnerability findings
+            if chunk.r#type == 1 {
+                if let Some(arr) = chunk.value.as_array() {
+                    for item in arr {
+                        if let Some(obj) = item.as_object() {
+                            let parameter = obj.get("parameter")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let vulnerability_type = obj.get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let payload = obj.get("payload")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            findings.push(SqlmapFinding {
+                                parameter,
+                                vulnerability_type,
+                                payload,
+                                details: item.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        findings
+    }
+}
+
 /// Configuration payload mapped directly to SQLMap CLI arguments.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct SqlmapOptions {
@@ -117,4 +160,61 @@ pub struct SqlmapOptions {
     /// Use a proxy?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_data_response_gives_no_findings() {
+        let resp = DataResponse { success: true, data: None, error: None };
+        assert!(resp.findings().is_empty());
+    }
+
+    #[test]
+    fn type_0_chunks_ignored() {
+        let resp = DataResponse {
+            success: true,
+            data: Some(vec![SqlmapDataChunk { r#type: 0, value: serde_json::json!("log message") }]),
+            error: None,
+        };
+        assert!(resp.findings().is_empty());
+    }
+
+    #[test]
+    fn type_1_chunk_parsed_as_finding() {
+        let resp = DataResponse {
+            success: true,
+            data: Some(vec![SqlmapDataChunk {
+                r#type: 1,
+                value: serde_json::json!([{
+                    "parameter": "id",
+                    "type": "boolean-based blind",
+                    "payload": "id=1 AND 1=1"
+                }]),
+            }]),
+            error: None,
+        };
+        let findings = resp.findings();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].parameter, "id");
+        assert_eq!(findings[0].vulnerability_type, "boolean-based blind");
+    }
+
+    #[test]
+    fn options_serialization() {
+        let opts = SqlmapOptions {
+            url: Some("http://test.com?id=1".into()),
+            level: Some(3),
+            risk: Some(2),
+            batch: Some(true),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&opts).unwrap();
+        assert!(json.contains("http://test.com"));
+        assert!(json.contains("\"level\":3"));
+        // None fields should be skipped
+        assert!(!json.contains("dbms"));
+    }
 }
