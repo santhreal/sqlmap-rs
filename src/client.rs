@@ -304,8 +304,10 @@ impl<'a> SqlmapTask<'a> {
                     return Ok(());
                 }
                 Some("not running") => {
-                    // Task was created but not started, or already finished.
-                    return Ok(());
+                    // sqlmapapi reports "not running" before start attaches a
+                    // process AND after some finished states. Keep polling;
+                    // only `terminated` is a definitive completion.
+                    debug!(task_id = %self.task_id, "scan not running yet");
                 }
                 Some(other) => {
                     warn!(task_id = %self.task_id, status = %other, "unknown sqlmap status");

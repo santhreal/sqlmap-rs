@@ -12,7 +12,7 @@ A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL in
 
 ## Features
 
-- **Full API coverage** — start, stop, kill, log, data, option introspection
+- **Core API coverage** — start, stop, kill, log, data, option introspection
 - **Builder pattern** — fluent `SqlmapOptions::builder()` with 40+ options
 - **Multi-format output** — JSON, CSV, Markdown, and plain text
 - **RAII lifecycle** — tasks cleaned up on drop, daemon killed on engine drop
@@ -23,7 +23,7 @@ A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL in
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.2.0"
+sqlmap-rs = "0.2.1"
 tokio = { version = "1", features = ["full"] }
 ```
 

@@ -8,7 +8,7 @@
 //!
 //! ## Features
 //!
-//! - **Full API coverage**: start, stop, kill, log, data, option introspection.
+//! - **Core API coverage**: start, stop, kill, log, data, option introspection.
 //! - **Builder pattern**: Fluent `SqlmapOptions::builder()` with 40+ sqlmap options.
 //! - **Multi-format output**: JSON, CSV, Markdown, and plain text.
 //! - **RAII cleanup**: Tasks and daemon processes are cleaned up on drop.
@@ -30,9 +30,9 @@ pub mod error;
 /// Deserialization payloads, options builder, and output formatting.
 pub mod types;
 
-pub use client::SqlmapEngine;
+pub use client::{SqlmapEngine, SqlmapTask};
 pub use error::SqlmapError;
 pub use types::{
-    DataResponse, LogEntry, LogResponse, OutputFormat, SqlmapDataChunk, SqlmapFinding,
-    SqlmapOptions, SqlmapOptionsBuilder,
+    format_findings, DataResponse, LogEntry, LogResponse, OutputFormat, SqlmapDataChunk,
+    SqlmapFinding, SqlmapOptions, SqlmapOptionsBuilder,
 };

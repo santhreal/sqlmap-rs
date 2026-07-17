@@ -134,8 +134,9 @@ impl fmt::Display for SqlmapFinding {
 impl DataResponse {
     /// Extract structured findings from the raw data chunks.
     ///
-    /// Type 1 chunks contain vulnerability data. This parses them into
-    /// `SqlmapFinding` structs with parameter, type, payload, and details.
+    /// Type 1 chunks are sqlmapapi TECHNIQUES payloads: each value entry is an
+    /// injection point with a nested `data[]` of `{title|technique, payload}`.
+    /// Flat legacy objects with top-level `type`/`payload` are still accepted.
     pub fn findings(&self) -> Vec<SqlmapFinding> {
         let Some(ref chunks) = self.data else {
             return vec![];
@@ -143,34 +144,66 @@ impl DataResponse {
         let mut findings = Vec::new();
 
         for chunk in chunks {
-            if chunk.r#type == 1 {
-                if let Some(arr) = chunk.value.as_array() {
-                    for item in arr {
-                        if let Some(obj) = item.as_object() {
-                            let parameter = obj
-                                .get("parameter")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            let vulnerability_type = obj
-                                .get("type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            let payload = obj
-                                .get("payload")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            findings.push(SqlmapFinding {
-                                parameter,
-                                vulnerability_type,
-                                payload,
-                                details: item.clone(),
-                            });
-                        }
+            if chunk.r#type != 1 {
+                continue;
+            }
+            let Some(arr) = chunk.value.as_array() else {
+                continue;
+            };
+            for item in arr {
+                let Some(obj) = item.as_object() else {
+                    continue;
+                };
+                let parameter = obj
+                    .get("parameter")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                if let Some(nested) = obj.get("data").and_then(|v| v.as_array()) {
+                    for tech in nested {
+                        let Some(tech_obj) = tech.as_object() else {
+                            continue;
+                        };
+                        let vulnerability_type = tech_obj
+                            .get("technique")
+                            .or_else(|| tech_obj.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let payload = tech_obj
+                            .get("payload")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        findings.push(SqlmapFinding {
+                            parameter: parameter.clone(),
+                            vulnerability_type,
+                            payload,
+                            details: tech.clone(),
+                        });
                     }
+                    continue;
                 }
+
+                // Legacy flat shape (non-api fixtures / older payloads).
+                let vulnerability_type = obj
+                    .get("type")
+                    .or_else(|| obj.get("title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let payload = obj
+                    .get("payload")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                findings.push(SqlmapFinding {
+                    parameter,
+                    vulnerability_type,
+                    payload,
+                    details: item.clone(),
+                });
             }
         }
 
@@ -645,6 +678,41 @@ mod tests {
             error: None,
         };
         assert!(resp.findings().is_empty());
+    }
+
+    #[test]
+    fn type_1_nested_techniques_expanded() {
+        let resp = DataResponse {
+            success: true,
+            data: Some(vec![SqlmapDataChunk {
+                r#type: 1,
+                value: serde_json::json!([{
+                    "place": "GET",
+                    "parameter": "id",
+                    "data": [
+                        {
+                            "title": "AND boolean-based blind - WHERE or HAVING clause",
+                            "payload": "id=1 AND 8888=8888"
+                        },
+                        {
+                            "technique": "time-based blind",
+                            "payload": "id=1 AND SLEEP(5)"
+                        }
+                    ]
+                }]),
+            }]),
+            error: None,
+        };
+        let findings = resp.findings();
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0].parameter, "id");
+        assert_eq!(
+            findings[0].vulnerability_type,
+            "AND boolean-based blind - WHERE or HAVING clause"
+        );
+        assert_eq!(findings[0].payload, "id=1 AND 8888=8888");
+        assert_eq!(findings[1].vulnerability_type, "time-based blind");
+        assert_eq!(findings[1].payload, "id=1 AND SLEEP(5)");
     }
 
     #[test]
