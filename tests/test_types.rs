@@ -68,6 +68,51 @@ fn test_data_extraction() {
 }
 
 #[test]
+fn test_nested_techniques_status_fixture_two_findings() {
+    let raw = r#"{
+        "data": [
+            {
+                "status": 1,
+                "type": 1,
+                "value": [
+                    {
+                        "place": "GET",
+                        "parameter": "id",
+                        "ptype": 1,
+                        "data": [
+                            {
+                                "title": "AND boolean-based blind - WHERE or HAVING clause",
+                                "payload": "id=1 AND 8888=8888"
+                            },
+                            {
+                                "technique": "time-based blind",
+                                "payload": "id=1 AND SLEEP(5)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "error": [],
+        "success": true
+    }"#;
+
+    let resp: DataResponse = serde_json::from_str(raw).expect("parse");
+    assert!(resp.success);
+
+    let findings = resp.findings();
+    assert_eq!(findings.len(), 2);
+    assert_eq!(findings[0].parameter, "id");
+    assert_eq!(
+        findings[0].vulnerability_type,
+        "AND boolean-based blind - WHERE or HAVING clause"
+    );
+    assert_eq!(findings[0].payload, "id=1 AND 8888=8888");
+    assert_eq!(findings[1].vulnerability_type, "time-based blind");
+    assert_eq!(findings[1].payload, "id=1 AND SLEEP(5)");
+}
+
+#[test]
 fn test_builder_api() {
     let opts = SqlmapOptions::builder()
         .url("http://test.com?id=1")
@@ -117,7 +162,5 @@ fn test_output_formats() {
 
 #[test]
 fn test_is_available_static_method() {
-    // This test just verifies the method exists and doesn't panic.
     let _ = sqlmap_rs::SqlmapEngine::is_available();
-    let _ = sqlmap_rs::SqlmapEngine::is_available_at("/nonexistent/path");
 }

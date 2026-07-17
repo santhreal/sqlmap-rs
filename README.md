@@ -23,7 +23,7 @@ A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL in
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.2.2"
+sqlmap-rs = "0.3.0"
 tokio = { version = "1", features = ["full"] }
 ```
 

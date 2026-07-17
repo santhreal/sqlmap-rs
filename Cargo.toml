@@ -2,7 +2,7 @@
 
 [package]
 name = "sqlmap-rs"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.70"
 description = "Type-safe asynchronous wrapper for the sqlmap REST API (sqlmapapi) with task lifecycle control and multi-format results"
@@ -23,3 +23,6 @@ serde_json = "1.0.116"
 thiserror = "1.0.58"
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 tracing = "0.1.40"
+
+[dev-dependencies]
+proptest = "1.0"
