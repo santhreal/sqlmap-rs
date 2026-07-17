@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-17
+
+### Added
+- Santh-standard test suite: `tests/adversarial.rs`, `tests/gap.rs`,
+  `tests/property.rs`, `tests/contract.rs`, and `tests/integration.rs`.
+- Proptest coverage for finding JSON roundtrip, CSV shape, and type-0 chunk
+  invariants.
+- Nested TECHNIQUES fixture with two techniques in `tests/test_types.rs`.
+
+### Changed
+- Mature release bump after deep review: findings parser hardening and API
+  `success: false` rejection from 0.2.2 carried forward.
+
 ## [0.2.2] - 2026-07-17
 
 ### Fixed
