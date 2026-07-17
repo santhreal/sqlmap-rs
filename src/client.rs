@@ -16,8 +16,8 @@ use tracing::{debug, warn};
 
 /// Manages the `sqlmapapi` lifecycle and provides access to its REST API.
 ///
-/// When the engine is dropped, the daemon subprocess (if locally spawned)
-/// is killed automatically via RAII.
+/// When the engine is dropped, the locally spawned daemon subprocess
+/// is killed automatically via RAII (best-effort).
 pub struct SqlmapEngine {
     api_url: String,
     http: Client,
@@ -27,7 +27,7 @@ pub struct SqlmapEngine {
 }
 
 impl SqlmapEngine {
-    /// Launches a local `sqlmapapi` daemon or connects to an existing remote one.
+    /// Launches a local `sqlmapapi` daemon bound to `127.0.0.1`.
     ///
     /// # Arguments
     ///
@@ -225,7 +225,7 @@ impl Drop for SqlmapEngine {
 /// An RAII-tracked scan execution task.
 ///
 /// Ensures that the daemon reclaims task memory on drop by sending a
-/// delete request. Provides the full scan lifecycle: start → poll → fetch.
+/// delete request when a Tokio runtime is available (best-effort).
 pub struct SqlmapTask<'a> {
     engine: &'a SqlmapEngine,
     task_id: String,
@@ -325,7 +325,14 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            Ok(resp.json::<DataResponse>().await?)
+            let data = resp.json::<DataResponse>().await?;
+            if !data.success {
+                return Err(SqlmapError::ApiError(
+                    data.message
+                        .unwrap_or_else(|| "data fetch returned success=false".into()),
+                ));
+            }
+            Ok(data)
         } else {
             Err(SqlmapError::ApiError(format!(
                 "data fetch returned HTTP {}",
@@ -342,7 +349,14 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            Ok(resp.json::<LogResponse>().await?)
+            let log = resp.json::<LogResponse>().await?;
+            if !log.success {
+                return Err(SqlmapError::ApiError(
+                    log.message
+                        .unwrap_or_else(|| "log fetch returned success=false".into()),
+                ));
+            }
+            Ok(log)
         } else {
             Err(SqlmapError::ApiError(format!(
                 "log fetch returned HTTP {}",
@@ -404,7 +418,20 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            Ok(resp.json::<serde_json::Value>().await?)
+            let value = resp.json::<serde_json::Value>().await?;
+            if value
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .is_some_and(|success| !success)
+            {
+                let message = value
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "option list returned success=false".into());
+                return Err(SqlmapError::ApiError(message));
+            }
+            Ok(value)
         } else {
             Err(SqlmapError::ApiError(format!(
                 "option list returned HTTP {}",

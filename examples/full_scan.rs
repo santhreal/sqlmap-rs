@@ -1,6 +1,6 @@
 //! Complete example demonstrating all sqlmap-rs capabilities.
 //!
-//! Run with: cargo run --example full_scan
+//! Run with: cargo run --example full_scan -- <target-url>
 //!
 //! Prerequisites:
 //!   conda env create -f environment.yml
@@ -27,9 +27,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Daemon ready at {}", engine.api_url());
 
     // ── 3. Configure scan with builder ───────────────────
-    let target = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "http://testphp.vulnweb.com/listproducts.php?cat=1".to_string());
+    let target = std::env::args().nth(1).unwrap_or_else(|| {
+        eprintln!("Usage: cargo run --example full_scan -- <target-url>");
+        eprintln!("Example: cargo run --example full_scan -- http://example.com/page?id=1");
+        std::process::exit(1);
+    });
 
     println!("Target: {target}");
 
