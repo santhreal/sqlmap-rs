@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-07-17
+
+### Fixed
+- `fetch_data`, `fetch_log`, and `list_options` now return `SqlmapError::ApiError`
+  when the API JSON body has `success: false` (with `message` when present).
+- `SqlmapOptions.tech` serializes as sqlmap's `technique` field (BEUSTQ, including `Q`).
+- `DataResponse::findings()` skips incomplete type-1 objects (parameter-only or
+  type without payload); legacy flat objects with `type` + `payload` still parse.
+
+### Changed
+- Crate repository URL: `https://github.com/santhreal/sqlmap-rs`.
+- Added `[workspace]` so the crate builds standalone outside the Santh monorepo.
+- Published package excludes `setup.sh`, `environment.yml`, and `.github/`.
+- README and crate docs: localhost-only daemon, best-effort RAII cleanup; removed
+  overclaims (`panic-free`, remote daemon).
+- `examples/full_scan` requires a target URL CLI argument (no default vulnweb URL).
+
 ## [0.2.1] - 2026-07-17
 
 ### Fixed

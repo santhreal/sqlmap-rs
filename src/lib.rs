@@ -2,24 +2,24 @@
 //!
 //! An asynchronous, strictly-typed Rust wrapper for the `sqlmapapi` REST Server.
 //!
-//! Provides a panic-free API for orchestrating SQL injection scans using the
-//! world's most powerful detection engine. Instead of parsing messy CLI outputs,
-//! this library communicates via sqlmap's native REST API.
+//! Communicates with a **localhost-only** `sqlmapapi` daemon (`127.0.0.1`) over
+//! sqlmap's native REST API instead of parsing CLI output.
 //!
 //! ## Features
 //!
 //! - **Core API coverage**: start, stop, kill, log, data, option introspection.
 //! - **Builder pattern**: Fluent `SqlmapOptions::builder()` with 40+ sqlmap options.
 //! - **Multi-format output**: JSON, CSV, Markdown, and plain text.
-//! - **RAII cleanup**: Tasks and daemon processes are cleaned up on drop.
+//! - **RAII cleanup**: Best-effort task and daemon cleanup on drop (requires an active Tokio runtime for task deletion).
 //! - **Port conflict detection**: Prevents silent connection to wrong daemons.
 //! - **Configurable polling**: Custom intervals and HTTP timeouts.
 //!
 //! ## Architecture
 //!
-//! The library spawns `sqlmapapi.py` under a Tokio background thread and uses
-//! HTTP polling to track scan lifecycles. When the engine drops, the daemon
-//! is killed. When a task drops, it is deleted from the daemon.
+//! The library spawns `sqlmapapi.py` on `127.0.0.1` and uses HTTP polling to
+//! track scan lifecycles. When the engine drops, the daemon subprocess is killed
+//! best-effort. When a task drops, it is deleted from the daemon if a Tokio
+//! runtime is available.
 
 #![warn(missing_docs)]
 

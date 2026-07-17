@@ -1,18 +1,20 @@
+[workspace]
+
 [package]
 name = "sqlmap-rs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.70"
 description = "Type-safe asynchronous wrapper for the sqlmap REST API (sqlmapapi) with task lifecycle control and multi-format results"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/santhsecurity/sqlmap-rs"
+repository = "https://github.com/santhreal/sqlmap-rs"
 homepage = "https://santh.io"
 documentation = "https://docs.rs/sqlmap-rs"
 keywords = ["sqli", "security", "sqlmap", "injection", "vulnerability"]
 categories = ["api-bindings", "web-programming"]
-exclude = [".github/"]
+exclude = [".github/", "setup.sh", "environment.yml"]
 
 [dependencies]
 reqwest = { version = "0.12.3", default-features = false, features = ["json", "rustls-tls"] }

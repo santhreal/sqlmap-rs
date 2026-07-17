@@ -62,6 +62,8 @@ pub struct DataResponse {
     pub data: Option<Vec<SqlmapDataChunk>>,
     /// Array of structured errors from the engine.
     pub error: Option<Vec<String>>,
+    /// Error or informational message when `success` is false.
+    pub message: Option<String>,
 }
 
 /// A log entry from the sqlmap scan execution.
@@ -84,6 +86,8 @@ pub struct LogResponse {
     pub success: bool,
     /// Array of log entries.
     pub log: Option<Vec<LogEntry>>,
+    /// Error or informational message when `success` is false.
+    pub message: Option<String>,
 }
 
 // ── Finding types ────────────────────────────────────────────────
@@ -131,6 +135,10 @@ impl fmt::Display for SqlmapFinding {
     }
 }
 
+fn is_confirmed_finding(vulnerability_type: &str, payload: &str) -> bool {
+    !payload.is_empty() && vulnerability_type != "unknown"
+}
+
 impl DataResponse {
     /// Extract structured findings from the raw data chunks.
     ///
@@ -176,12 +184,14 @@ impl DataResponse {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        findings.push(SqlmapFinding {
-                            parameter: parameter.clone(),
-                            vulnerability_type,
-                            payload,
-                            details: tech.clone(),
-                        });
+                        if is_confirmed_finding(&vulnerability_type, &payload) {
+                            findings.push(SqlmapFinding {
+                                parameter: parameter.clone(),
+                                vulnerability_type,
+                                payload,
+                                details: tech.clone(),
+                            });
+                        }
                     }
                     continue;
                 }
@@ -198,12 +208,14 @@ impl DataResponse {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                findings.push(SqlmapFinding {
-                    parameter,
-                    vulnerability_type,
-                    payload,
-                    details: item.clone(),
-                });
+                if is_confirmed_finding(&vulnerability_type, &payload) {
+                    findings.push(SqlmapFinding {
+                        parameter,
+                        vulnerability_type,
+                        payload,
+                        details: item.clone(),
+                    });
+                }
             }
         }
 
@@ -333,8 +345,8 @@ pub struct SqlmapOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dbms: Option<String>,
 
-    /// Payload techniques to test (B=Boolean, T=Time, E=Error, U=UNION, S=Stacked).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Payload techniques to test (B=Boolean, E=Error, U=UNION, S=Stacked, T=Time, Q=Inline query).
+    #[serde(rename = "technique", skip_serializing_if = "Option::is_none")]
     pub tech: Option<String>,
 
     /// Level of tests to perform (1-5, default 1).
@@ -663,6 +675,7 @@ mod tests {
             success: true,
             data: None,
             error: None,
+            message: None,
         };
         assert!(resp.findings().is_empty());
     }
@@ -676,6 +689,7 @@ mod tests {
                 value: serde_json::json!("log message"),
             }]),
             error: None,
+            message: None,
         };
         assert!(resp.findings().is_empty());
     }
@@ -702,6 +716,7 @@ mod tests {
                 }]),
             }]),
             error: None,
+            message: None,
         };
         let findings = resp.findings();
         assert_eq!(findings.len(), 2);
@@ -728,6 +743,7 @@ mod tests {
                 }]),
             }]),
             error: None,
+            message: None,
         };
         let findings = resp.findings();
         assert_eq!(findings.len(), 1);
@@ -755,6 +771,14 @@ mod tests {
     }
 
     #[test]
+    fn tech_serializes_as_technique() {
+        let opts = SqlmapOptions::builder().tech("BEUSTQ").build();
+        let json = serde_json::to_string(&opts).expect("serialize");
+        assert!(json.contains("\"technique\":\"BEUSTQ\""));
+        assert!(!json.contains("\"tech\""));
+    }
+
+    #[test]
     fn type_1_chunk_edge_cases() {
         let resp = DataResponse {
             success: true,
@@ -763,17 +787,22 @@ mod tests {
                 value: serde_json::json!([
                     { "parameter": "username" },
                     "string_instead_of_object_should_be_ignored",
-                    { "type": "error-based" }
+                    { "type": "error-based" },
+                    {
+                        "parameter": "id",
+                        "type": "boolean-based blind",
+                        "payload": "id=1 AND 1=1"
+                    }
                 ]),
             }]),
             error: None,
+            message: None,
         };
         let findings = resp.findings();
-        assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0].parameter, "username");
-        assert_eq!(findings[0].vulnerability_type, "unknown");
-        assert_eq!(findings[1].parameter, "unknown");
-        assert_eq!(findings[1].vulnerability_type, "error-based");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].parameter, "id");
+        assert_eq!(findings[0].vulnerability_type, "boolean-based blind");
+        assert_eq!(findings[0].payload, "id=1 AND 1=1");
     }
 
     #[test]

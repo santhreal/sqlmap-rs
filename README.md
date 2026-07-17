@@ -8,14 +8,14 @@
 
 A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL injection testing tool.
 
-`sqlmap-rs` spawns sqlmap's native REST server (`sqlmapapi.py`) and communicates via a strictly-typed Tokio JSON pipeline. Tasks are RAII-managed — memory is reclaimed automatically on drop.
+`sqlmap-rs` spawns sqlmap's native REST server (`sqlmapapi.py`) on **localhost** (`127.0.0.1`) and communicates via a strictly-typed Tokio JSON pipeline. Tasks use RAII-style cleanup on drop (best-effort; task deletion requires an active Tokio runtime).
 
 ## Features
 
 - **Core API coverage** — start, stop, kill, log, data, option introspection
 - **Builder pattern** — fluent `SqlmapOptions::builder()` with 40+ options
 - **Multi-format output** — JSON, CSV, Markdown, and plain text
-- **RAII lifecycle** — tasks cleaned up on drop, daemon killed on engine drop
+- **RAII lifecycle** — best-effort task cleanup on drop, daemon killed on engine drop
 - **Port conflict detection** — prevents silent connection to wrong daemons
 - **Configurable polling** — custom intervals and HTTP timeouts
 
@@ -23,7 +23,7 @@ A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL in
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.2.1"
+sqlmap-rs = "0.2.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -122,9 +122,10 @@ let opts = SqlmapOptions::builder()
 
 ## Security & Memory
 
-- **Task Drop**: When `SqlmapTask` leaves scope, a background task deletes the execution context from the daemon. Uses `Handle::try_current()` to avoid panics if no runtime is active.
-- **Engine Drop**: When `SqlmapEngine` is dropped, the daemon subprocess receives a kill signal.
-- **Port Safety**: The engine detects port conflicts before spawning, preventing accidental connection to unrelated services.
+- **Task Drop**: When `SqlmapTask` leaves scope, a background task deletes the execution context from the daemon when a Tokio runtime is active. Without a runtime, cleanup is skipped (best-effort).
+- **Engine Drop**: When `SqlmapEngine` is dropped, the daemon subprocess receives a kill signal (best-effort).
+- **Port Safety**: The engine detects port conflicts before spawning, preventing accidental connection to unrelated services on the same port.
+- **Localhost only**: The API client always targets `127.0.0.1`; there is no remote-daemon mode.
 
 ## License
 
