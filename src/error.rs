@@ -40,7 +40,7 @@ pub enum SqlmapError {
     InvalidTask(String),
 
     /// The daemon failed to bind to the requested port.
-    #[error("port {port} is already in use — try a different port or use port 0 for auto-assignment")]
+    #[error("port {port} is already in use — choose a free port")]
     PortConflict {
         /// The port that was requested.
         port: u16,

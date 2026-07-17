@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-17
+
+### Fixed
+- Parse real sqlmapapi TECHNIQUES payloads: expand nested `data[]`
+  (`title`/`technique` + `payload`) instead of only flat `type` fields.
+- `wait_for_completion` no longer treats `"not running"` as success
+  (that status means the scan has not finished / not attached yet).
+- `PortConflict` message no longer advertises unsupported port `0`.
+
+### Changed
+- Crate description no longer claims streaming output.
+- Categories: `api-bindings` + `web-programming`.
+- Re-export `SqlmapTask` and `format_findings` from the crate root.
+- Narrow `tokio` features; stop excluding `setup.sh` / `environment.yml`
+  from the published package so README install paths resolve.
+
 ## [0.2.0] - 2026-03-25
 
 ### Added

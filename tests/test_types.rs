@@ -37,8 +37,12 @@ fn test_data_extraction() {
                         "place": "GET",
                         "parameter": "id",
                         "ptype": 1,
-                        "title": "AND boolean-based blind - WHERE or HAVING clause",
-                        "payload": "id=1 AND 8888=8888"
+                        "data": [
+                            {
+                                "title": "AND boolean-based blind - WHERE or HAVING clause",
+                                "payload": "id=1 AND 8888=8888"
+                            }
+                        ]
                     }
                 ]
             }
@@ -56,6 +60,11 @@ fn test_data_extraction() {
     let findings = resp.findings();
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].parameter, "id");
+    assert_eq!(
+        findings[0].vulnerability_type,
+        "AND boolean-based blind - WHERE or HAVING clause"
+    );
+    assert_eq!(findings[0].payload, "id=1 AND 8888=8888");
 }
 
 #[test]
