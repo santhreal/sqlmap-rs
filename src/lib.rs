@@ -11,7 +11,7 @@
 //! - **Builder pattern**: Fluent `SqlmapOptions::builder()` with 40+ sqlmap options.
 //! - **Multi-format output**: JSON, CSV, Markdown, and plain text.
 //! - **RAII cleanup**: Best-effort task and daemon cleanup on drop (requires an active Tokio runtime for task deletion).
-//! - **Port conflict detection**: Prevents silent connection to wrong daemons.
+//! - **Port conflict detection**: Best-effort TCP probe before spawn; see README Security for TOCTOU limits.
 //! - **Configurable polling**: Custom intervals and HTTP timeouts.
 //!
 //! ## Architecture
@@ -36,3 +36,6 @@ pub use types::{
     format_findings, DataResponse, LogEntry, LogResponse, OutputFormat, SqlmapDataChunk,
     SqlmapFinding, SqlmapOptions, SqlmapOptionsBuilder,
 };
+
+// Holds MSRV pin on idna_adapter (see Cargo.toml).
+use idna_adapter as _;

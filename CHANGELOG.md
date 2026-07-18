@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-07-17
+
+### Added
+- `SqlmapError::MalformedResponse` for JSON decode failures; `InvalidTask` for missing/empty task IDs.
+- Mock integration tests for `wait_for_completion`: running→terminated, not-running timeout, non-zero returncode, HTTP 500.
+- Gap test documenting JSON `format_findings` collapse to `"[]"` on serialization failure; property test that random findings always produce parseable JSON arrays.
+- README documents port-conflict TOCTOU and that `spawn_local=false` does not verify the peer is sqlmapapi.
+
+### Fixed
+- MSRV corrected to **1.85** (edition 2024 transitive deps such as `cpufeatures` require it; 0.3.1's 1.71 claim was false).
+- `format_findings` Json/JsonPretty no longer emit fake `{"error":...}` on serialization failure (returns `"[]"` with documented limitation).
+- `wait_for_completion` checks HTTP status before JSON parse (aligned with `fetch_data`).
+- CI cache key hashes `Cargo.toml` instead of gitignored `Cargo.lock`.
+
+### Changed
+- MSRV CI job uses Rust 1.85.
+- Direct `idna_adapter = 1.1.0` dependency pins the graph below icu 2.2 (rustc 1.86+) so MSRV 1.85 holds without a committed lockfile.
+
 ## [0.3.1] - 2026-07-17
 
 ### Added
@@ -20,8 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `start`, `stop`, and `kill` reject non-success HTTP responses before JSON parse.
 
 ### Changed
-- MSRV bumped to Rust 1.71.
 - README tone softened (em dashes removed); `SqlmapFinding` Display uses ASCII hyphen instead of em dash.
+
+**Note:** The 0.3.1 changelog entry claimed MSRV 1.71; that was incorrect and is corrected in 0.3.2.
 
 ## [0.3.0] - 2026-07-17
 

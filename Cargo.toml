@@ -2,9 +2,9 @@
 
 [package]
 name = "sqlmap-rs"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
-rust-version = "1.71"
+rust-version = "1.85"
 description = "Type-safe asynchronous wrapper for the sqlmap REST API (sqlmapapi) with task lifecycle control and multi-format results"
 authors = ["CORUM COLLECTIVE LLC (Santh Security)"]
 license = "MIT"
@@ -23,6 +23,8 @@ serde_json = "1.0.116"
 thiserror = "1.0.58"
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 tracing = "0.1.40"
+# MSRV pin: idna_adapter 1.2+ pulls icu 2.2 (rustc 1.86+). Unused direct dep holds 1.85.
+idna_adapter = { version = "=1.1.0", default-features = false }
 
 [dev-dependencies]
 proptest = "1.0"

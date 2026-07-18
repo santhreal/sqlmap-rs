@@ -16,14 +16,14 @@ A type-safe, asynchronous Rust orchestrator for the sqlmap SQL injection testing
 - **Builder pattern** - fluent `SqlmapOptions::builder()` with 40+ options
 - **Multi-format output** - JSON, CSV, Markdown, and plain text
 - **RAII lifecycle** - best-effort task cleanup on drop, daemon killed on engine drop
-- **Port conflict detection** - prevents silent connection to wrong daemons
+- **Port conflict detection** - best-effort check before spawn; see Security section for TOCTOU limits
 - **Configurable polling** - custom intervals and HTTP timeouts
 
 ## Installation
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.3.1"
+sqlmap-rs = "0.3.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -124,7 +124,8 @@ let opts = SqlmapOptions::builder()
 
 - **Task Drop**: When `SqlmapTask` leaves scope, a background task deletes the execution context from the daemon when a Tokio runtime is active. Without a runtime, cleanup is skipped (best-effort).
 - **Engine Drop**: When `SqlmapEngine` is dropped, the daemon subprocess receives a kill signal (best-effort).
-- **Port Safety**: The engine detects port conflicts before spawning, preventing accidental connection to unrelated services on the same port.
+- **Port safety (spawn_local=true)**: Before spawning, the engine probes whether the port accepts TCP connections. If so, it returns `PortConflict` instead of starting a second daemon. This check is subject to a TOCTOU race: another process may bind the port between the probe and `sqlmapapi` startup, or a non-sqlmap listener may already be bound.
+- **Attach mode (spawn_local=false)**: `SqlmapEngine::new(port, false, None)` connects to whatever is listening on `127.0.0.1:port` without verifying that the peer is `sqlmapapi`. Callers must ensure the port is correct.
 - **Localhost only**: The API client always targets `127.0.0.1`; there is no remote-daemon mode.
 
 ## License

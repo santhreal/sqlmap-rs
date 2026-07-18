@@ -14,6 +14,14 @@ use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
+fn map_json_error(err: reqwest::Error) -> SqlmapError {
+    if err.is_decode() {
+        SqlmapError::MalformedResponse
+    } else {
+        SqlmapError::RequestError(err)
+    }
+}
+
 /// Manages the `sqlmapapi` lifecycle and provides access to its REST API.
 ///
 /// When the engine is dropped, the locally spawned daemon subprocess
@@ -115,7 +123,7 @@ impl SqlmapEngine {
             let mut ready = false;
             for attempt in 0..20 {
                 if let Ok(resp) = http.get(format!("{api_url}/task/new")).send().await {
-                    if let Ok(json) = resp.json::<NewTaskResponse>().await {
+                    if let Ok(json) = resp.json::<NewTaskResponse>().await.map_err(map_json_error) {
                         if json.success {
                             if let Some(task_id) = json.taskid {
                                 // Clean up the probe task.
@@ -162,7 +170,8 @@ impl SqlmapEngine {
             .send()
             .await?
             .json::<NewTaskResponse>()
-            .await?;
+            .await
+            .map_err(map_json_error)?;
 
         if !resp.success {
             return Err(SqlmapError::ApiError(
@@ -171,15 +180,10 @@ impl SqlmapEngine {
             ));
         }
 
-        let task_id = resp.taskid.ok_or_else(|| {
-            SqlmapError::ApiError("task creation succeeded but returned no task ID".into())
-        })?;
-
-        if task_id.is_empty() {
-            return Err(SqlmapError::ApiError(
-                "task creation succeeded but returned empty task ID".into(),
-            ));
-        }
+        let task_id = resp
+            .taskid
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| SqlmapError::InvalidTask(String::new()))?;
 
         let task = SqlmapTask {
             engine: self,
@@ -195,7 +199,8 @@ impl SqlmapEngine {
             .send()
             .await?
             .json::<BasicResponse>()
-            .await?;
+            .await
+            .map_err(map_json_error)?;
 
         if !set_resp.success {
             return Err(SqlmapError::ApiError(
@@ -274,7 +279,7 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.post(&uri).json(&payload).send().await?;
 
         if resp.status().is_success() {
-            let body = resp.json::<BasicResponse>().await?;
+            let body = resp.json::<BasicResponse>().await.map_err(map_json_error)?;
             if !body.success {
                 return Err(SqlmapError::ApiError(
                     body.message
@@ -302,28 +307,34 @@ impl<'a> SqlmapTask<'a> {
                 return Err(SqlmapError::Timeout(timeout_secs));
             }
 
-            let resp = self
-                .engine
-                .http
-                .get(&uri)
-                .send()
-                .await?
-                .json::<StatusResponse>()
-                .await?;
+            let resp = self.engine.http.get(&uri).send().await?;
 
-            if !resp.success {
+            if !resp.status().is_success() {
+                return Err(SqlmapError::ApiError(format!(
+                    "status check returned HTTP {}",
+                    resp.status()
+                )));
+            }
+
+            let status = resp
+                .json::<StatusResponse>()
+                .await
+                .map_err(map_json_error)?;
+
+            if !status.success {
                 return Err(SqlmapError::ApiError(
-                    resp.message
+                    status
+                        .message
                         .unwrap_or_else(|| "status check returned success=false".into()),
                 ));
             }
 
-            match resp.status.as_deref() {
+            match status.status.as_deref() {
                 Some("running") => {
                     debug!(task_id = %self.task_id, "scan running");
                 }
                 Some("terminated") => {
-                    if let Some(code) = resp.returncode {
+                    if let Some(code) = status.returncode {
                         if code != 0 {
                             return Err(SqlmapError::ApiError(format!(
                                 "scan terminated with non-zero exit code {code}"
@@ -354,7 +365,7 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            let data = resp.json::<DataResponse>().await?;
+            let data = resp.json::<DataResponse>().await.map_err(map_json_error)?;
             if !data.success {
                 return Err(SqlmapError::ApiError(
                     data.message
@@ -378,7 +389,7 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            let log = resp.json::<LogResponse>().await?;
+            let log = resp.json::<LogResponse>().await.map_err(map_json_error)?;
             if !log.success {
                 return Err(SqlmapError::ApiError(
                     log.message
@@ -402,7 +413,7 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            let body = resp.json::<BasicResponse>().await?;
+            let body = resp.json::<BasicResponse>().await.map_err(map_json_error)?;
             if !body.success {
                 return Err(SqlmapError::ApiError(
                     body.message
@@ -427,7 +438,7 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            let body = resp.json::<BasicResponse>().await?;
+            let body = resp.json::<BasicResponse>().await.map_err(map_json_error)?;
             if !body.success {
                 return Err(SqlmapError::ApiError(
                     body.message
@@ -449,7 +460,10 @@ impl<'a> SqlmapTask<'a> {
         let resp = self.engine.http.get(uri).send().await?;
 
         if resp.status().is_success() {
-            let value = resp.json::<serde_json::Value>().await?;
+            let value = resp
+                .json::<serde_json::Value>()
+                .await
+                .map_err(map_json_error)?;
             if value
                 .get("success")
                 .and_then(|v| v.as_bool())
