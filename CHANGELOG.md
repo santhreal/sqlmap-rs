@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-07-17
+
+### Added
+- Attach-mode health probe: `/task/new` shape check (`success` + non-empty `taskid`) before accepting an external daemon.
+- Dict-shaped outer type-1 `value` parsing in `findings()` (parity with nested `data` dict form).
+- Integration tests: HTTP 500 on `/task/new` and `/option/{id}/set`, port 0 in attach mode, zero `request_timeout`, `wait_for_completion(0)` immediate timeout, `terminated` + null `returncode` failure.
+- Contract test asserting `rust-version = "1.85"` in `Cargo.toml`.
+- Adversarial tests: outer dict-shaped type-1 parity twin, Markdown backtick escaping.
+
+### Fixed
+- `create_task` checks HTTP status before JSON parse on `/task/new` and `/option/{id}/set` (aligned with `fetch_data`).
+- `wait_for_completion` uses an `Instant` deadline so `timeout_secs=0` fails immediately instead of polling ~1s.
+- `wait_for_completion` rejects `status=terminated` with `returncode: null` as `ApiError`.
+- `markdown_escape` escapes backticks in table cells.
+- `with_config` rejects `port == 0` always and zero `request_timeout`.
+
+### Changed
+- README: Options A/B (`environment.yml`, `setup.sh`) marked GitHub-only; crates.io users should use Option C (`pip install sqlmap`).
+- README: attach mode documents `/task/new` health probe instead of no verification.
+- CI `publish` job now `needs: [check, msrv]`.
+
 ## [0.3.2] - 2026-07-17
 
 ### Added

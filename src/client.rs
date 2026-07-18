@@ -39,8 +39,7 @@ impl SqlmapEngine {
     ///
     /// # Arguments
     ///
-    /// * `port` — TCP port for the daemon. If `0` is passed with `spawn_local`,
-    ///   the OS assigns an ephemeral port (not yet supported by sqlmapapi).
+    /// * `port` — TCP port for the daemon. Port `0` is not supported.
     /// * `spawn_local` — If true, spawns a local `sqlmapapi` subprocess.
     /// * `binary_path` — Override the `sqlmapapi` binary location.
     ///
@@ -82,10 +81,14 @@ impl SqlmapEngine {
             ));
         }
 
-        if spawn_local && port == 0 {
+        if request_timeout.is_zero() {
             return Err(SqlmapError::ApiError(
-                "port 0 is not supported when spawning local sqlmapapi".into(),
+                "request_timeout must be greater than zero".into(),
             ));
+        }
+
+        if port == 0 {
+            return Err(SqlmapError::ApiError("port 0 is not supported".into()));
         }
 
         let mut daemon_process = None;
@@ -122,20 +125,9 @@ impl SqlmapEngine {
             // Wait for daemon to become responsive with a health probe.
             let mut ready = false;
             for attempt in 0..20 {
-                if let Ok(resp) = http.get(format!("{api_url}/task/new")).send().await {
-                    if let Ok(json) = resp.json::<NewTaskResponse>().await.map_err(map_json_error) {
-                        if json.success {
-                            if let Some(task_id) = json.taskid {
-                                // Clean up the probe task.
-                                let _ = http
-                                    .get(format!("{api_url}/task/{task_id}/delete"))
-                                    .send()
-                                    .await;
-                                ready = true;
-                                break;
-                            }
-                        }
-                    }
+                if Self::probe_task_new(&http, &api_url).await.is_ok() {
+                    ready = true;
+                    break;
                 }
                 debug!(attempt, "waiting for sqlmapapi daemon to become ready");
                 sleep(Duration::from_millis(250)).await;
@@ -146,6 +138,8 @@ impl SqlmapEngine {
                     "sqlmapapi daemon failed to become responsive within 5 seconds".into(),
                 ));
             }
+        } else {
+            Self::probe_task_new(&http, &api_url).await?;
         }
 
         Ok(Self {
@@ -156,6 +150,41 @@ impl SqlmapEngine {
         })
     }
 
+    /// Probes `/task/new` and verifies the peer returns `success` + a non-empty `taskid`.
+    async fn probe_task_new(http: &Client, api_url: &str) -> Result<(), SqlmapError> {
+        let resp = http.get(format!("{api_url}/task/new")).send().await?;
+
+        if !resp.status().is_success() {
+            return Err(SqlmapError::ApiError(format!(
+                "health probe returned HTTP {}",
+                resp.status()
+            )));
+        }
+
+        let json = resp
+            .json::<NewTaskResponse>()
+            .await
+            .map_err(map_json_error)?;
+
+        if !json.success {
+            return Err(SqlmapError::ApiError(
+                json.message
+                    .unwrap_or_else(|| "health probe returned success=false".into()),
+            ));
+        }
+
+        let task_id = json.taskid.filter(|id| !id.is_empty()).ok_or_else(|| {
+            SqlmapError::ApiError("health probe: /task/new did not return a taskid".into())
+        })?;
+
+        let _ = http
+            .get(format!("{api_url}/task/{task_id}/delete"))
+            .send()
+            .await;
+
+        Ok(())
+    }
+
     /// Creates and configures a new scanning task, returning an RAII wrapper.
     ///
     /// The task is automatically deleted from the daemon when dropped.
@@ -164,11 +193,16 @@ impl SqlmapEngine {
         options: &SqlmapOptions,
     ) -> Result<SqlmapTask<'_>, SqlmapError> {
         let uri = format!("{}/task/new", self.api_url);
-        let resp = self
-            .http
-            .get(uri)
-            .send()
-            .await?
+        let resp = self.http.get(uri).send().await?;
+
+        if !resp.status().is_success() {
+            return Err(SqlmapError::ApiError(format!(
+                "task creation returned HTTP {}",
+                resp.status()
+            )));
+        }
+
+        let resp = resp
             .json::<NewTaskResponse>()
             .await
             .map_err(map_json_error)?;
@@ -192,12 +226,16 @@ impl SqlmapEngine {
 
         // Set the configuration options on the new task.
         let set_uri = format!("{}/option/{}/set", self.api_url, task.task_id);
-        let set_resp = self
-            .http
-            .post(&set_uri)
-            .json(options)
-            .send()
-            .await?
+        let set_resp = self.http.post(&set_uri).json(options).send().await?;
+
+        if !set_resp.status().is_success() {
+            return Err(SqlmapError::ApiError(format!(
+                "option configuration returned HTTP {}",
+                set_resp.status()
+            )));
+        }
+
+        let set_resp = set_resp
             .json::<BasicResponse>()
             .await
             .map_err(map_json_error)?;
@@ -300,10 +338,10 @@ impl<'a> SqlmapTask<'a> {
     /// Uses the engine's configured poll interval (default: 1 second).
     pub async fn wait_for_completion(&self, timeout_secs: u64) -> Result<(), SqlmapError> {
         let uri = format!("{}/scan/{}/status", self.engine.api_url, self.task_id);
-        let start = std::time::Instant::now();
+        let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
 
         loop {
-            if start.elapsed().as_secs() > timeout_secs {
+            if std::time::Instant::now() >= deadline {
                 return Err(SqlmapError::Timeout(timeout_secs));
             }
 
@@ -333,16 +371,19 @@ impl<'a> SqlmapTask<'a> {
                 Some("running") => {
                     debug!(task_id = %self.task_id, "scan running");
                 }
-                Some("terminated") => {
-                    if let Some(code) = status.returncode {
-                        if code != 0 {
-                            return Err(SqlmapError::ApiError(format!(
-                                "scan terminated with non-zero exit code {code}"
-                            )));
-                        }
+                Some("terminated") => match status.returncode {
+                    Some(0) => return Ok(()),
+                    Some(code) => {
+                        return Err(SqlmapError::ApiError(format!(
+                            "scan terminated with non-zero exit code {code}"
+                        )));
                     }
-                    return Ok(());
-                }
+                    None => {
+                        return Err(SqlmapError::ApiError(
+                            "scan terminated without a process exit code".into(),
+                        ));
+                    }
+                },
                 Some("not running") => {
                     // sqlmapapi reports "not running" before start attaches a
                     // process AND after some finished states. Keep polling;

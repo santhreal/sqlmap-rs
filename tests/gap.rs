@@ -1,10 +1,37 @@
 //! Gap tests: pin documented limitations so future semantic changes are deliberate.
 use sqlmap_rs::{SqlmapEngine, SqlmapOptions};
 use std::fs;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+
+async fn start_probe_mock() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock listener");
+    let port = listener.local_addr().expect("local addr").port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let mut buf = vec![0u8; 8192];
+            let _n = stream.read(&mut buf).await.unwrap_or(0);
+            let body = r#"{"success":true,"taskid":"gap-probe"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    port
+}
 
 #[tokio::test]
 async fn gap_api_url_always_localhost_via_accessor() {
-    let engine = SqlmapEngine::new(59999, false, None)
+    let port = start_probe_mock().await;
+    let engine = SqlmapEngine::new(port, false, None)
         .await
         .expect("engine without local spawn");
     assert!(
@@ -12,7 +39,7 @@ async fn gap_api_url_always_localhost_via_accessor() {
         "gap: api_url must always target localhost: {}",
         engine.api_url()
     );
-    assert_eq!(engine.api_url(), "http://127.0.0.1:59999");
+    assert_eq!(engine.api_url(), format!("http://127.0.0.1:{port}"));
 }
 
 #[test]
@@ -85,7 +112,7 @@ fn gap_readme_documents_port_conflict_toctou_and_attach_mode() {
         "gap: README must document attach mode (spawn_local=false)"
     );
     assert!(
-        readme.to_lowercase().contains("sqlmapapi"),
-        "gap: README must state attach mode does not verify peer is sqlmapapi"
+        readme.contains("/task/new"),
+        "gap: README must document attach-mode /task/new health probe"
     );
 }

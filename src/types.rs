@@ -205,10 +205,7 @@ impl DataResponse {
             if chunk.r#type != 1 {
                 continue;
             }
-            let Some(arr) = chunk.value.as_array() else {
-                continue;
-            };
-            for item in arr {
+            for item in technique_entries(&chunk.value) {
                 let Some(obj) = item.as_object() else {
                     continue;
                 };
@@ -338,9 +335,13 @@ fn csv_escape(value: &str) -> String {
     }
 }
 
-/// Escape pipe characters for Markdown table cells.
+/// Escape characters that break GFM table cells. Backticks become `&#96;` because
+/// backslash escapes are not honored inside CommonMark code spans.
 fn markdown_escape(value: &str) -> String {
-    value.replace('|', "\\|")
+    value
+        .replace('\\', "\\\\")
+        .replace('|', "\\|")
+        .replace('`', "&#96;")
 }
 
 // ── SqlmapOptions ────────────────────────────────────────────────

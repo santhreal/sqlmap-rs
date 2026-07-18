@@ -14,9 +14,35 @@ fn cargo_toml_version() -> String {
 }
 
 #[test]
+fn contract_rust_version_is_1_85() {
+    let manifest = fs::read_to_string("Cargo.toml").expect("read Cargo.toml");
+    assert!(
+        manifest.contains("rust-version = \"1.85\""),
+        "Cargo.toml rust-version must be 1.85"
+    );
+}
+
+#[test]
+fn contract_readme_setup_ab_github_only() {
+    let readme = fs::read_to_string("README.md").expect("read README");
+    assert!(
+        readme.contains("GitHub repo only"),
+        "README must state setup.sh/environment.yml are GitHub-only"
+    );
+    assert!(
+        readme.contains("environment.yml"),
+        "README must still reference environment.yml for GitHub users"
+    );
+    assert!(
+        readme.contains("setup.sh"),
+        "README must still reference setup.sh for GitHub users"
+    );
+}
+
+#[test]
 fn contract_readme_version_matches_cargo_toml() {
     let version = cargo_toml_version();
-    assert_eq!(version, "0.3.2", "Cargo.toml version pin");
+    assert_eq!(version, "0.3.3", "Cargo.toml version pin");
     let readme = fs::read_to_string("README.md").expect("read README");
     assert!(
         readme.contains(&format!("sqlmap-rs = \"{version}\"")),

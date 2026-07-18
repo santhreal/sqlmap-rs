@@ -23,7 +23,7 @@ A type-safe, asynchronous Rust orchestrator for the sqlmap SQL injection testing
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.3.2"
+sqlmap-rs = "0.3.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -31,20 +31,20 @@ tokio = { version = "1", features = ["full"] }
 
 ## Setup (one-command)
 
-**Option A: Conda** (recommended for isolation)
+**Option A: Conda** (recommended for isolation; **GitHub repo only**, not included in the crates.io package)
 ```bash
 conda env create -f environment.yml
 conda activate sqlmap-env
 ```
 
-**Option B: Setup script** (auto-detects or installs conda + sqlmap)
+**Option B: Setup script** (auto-detects or installs conda + sqlmap; **GitHub repo only**, not included in the crates.io package)
 ```bash
 ./setup.sh
 # or with custom env name:
 ./setup.sh my-project-env
 ```
 
-**Option C: Manual**
+**Option C: Manual** (works from crates.io or GitHub)
 ```bash
 pip install sqlmap
 # verify:
@@ -125,7 +125,7 @@ let opts = SqlmapOptions::builder()
 - **Task Drop**: When `SqlmapTask` leaves scope, a background task deletes the execution context from the daemon when a Tokio runtime is active. Without a runtime, cleanup is skipped (best-effort).
 - **Engine Drop**: When `SqlmapEngine` is dropped, the daemon subprocess receives a kill signal (best-effort).
 - **Port safety (spawn_local=true)**: Before spawning, the engine probes whether the port accepts TCP connections. If so, it returns `PortConflict` instead of starting a second daemon. This check is subject to a TOCTOU race: another process may bind the port between the probe and `sqlmapapi` startup, or a non-sqlmap listener may already be bound.
-- **Attach mode (spawn_local=false)**: `SqlmapEngine::new(port, false, None)` connects to whatever is listening on `127.0.0.1:port` without verifying that the peer is `sqlmapapi`. Callers must ensure the port is correct.
+- **Attach mode (spawn_local=false)**: `SqlmapEngine::new(port, false, None)` probes `/task/new` for a valid `success` + `taskid` response before accepting the engine. This verifies the peer speaks sqlmapapi's task-creation shape, but does not authenticate the daemon beyond that probe.
 - **Localhost only**: The API client always targets `127.0.0.1`; there is no remote-daemon mode.
 
 ## License
