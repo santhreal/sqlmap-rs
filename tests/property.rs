@@ -16,7 +16,7 @@ proptest! {
             &payload,
             json!({"source": "proptest"}),
         );
-        let json_out = format_findings(&[original.clone()], OutputFormat::Json);
+        let json_out = format_findings(std::slice::from_ref(&original), OutputFormat::Json);
         let parsed: Vec<SqlmapFinding> = serde_json::from_str(&json_out)
             .expect("roundtrip JSON must deserialize");
         prop_assert_eq!(parsed.len(), 1);

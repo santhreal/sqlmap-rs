@@ -1,6 +1,6 @@
 //! External contract tests: README, Cargo metadata, and documented API behavior.
 use sqlmap_rs::types::{DataResponse, LogResponse};
-use sqlmap_rs::SqlmapOptions;
+use sqlmap_rs::{SqlmapError, SqlmapOptions};
 use std::fs;
 
 fn cargo_toml_version() -> String {
@@ -16,7 +16,7 @@ fn cargo_toml_version() -> String {
 #[test]
 fn contract_readme_version_matches_cargo_toml() {
     let version = cargo_toml_version();
-    assert_eq!(version, "0.3.0", "Cargo.toml version pin");
+    assert_eq!(version, "0.3.1", "Cargo.toml version pin");
     let readme = fs::read_to_string("README.md").expect("read README");
     assert!(
         readme.contains(&format!("sqlmap-rs = \"{version}\"")),
@@ -44,6 +44,20 @@ fn contract_tech_serializes_as_technique_not_tech() {
     assert!(
         !json.contains("\"tech\""),
         "Rust field name tech must not appear in JSON"
+    );
+}
+
+#[test]
+fn contract_binary_not_found_display_mentions_sqlmapapi_only() {
+    let err = SqlmapError::BinaryNotFound("sqlmapapi".into());
+    let display = format!("{err}");
+    assert!(
+        display.contains("sqlmapapi"),
+        "BinaryNotFound must mention sqlmapapi: {display}"
+    );
+    assert!(
+        !display.contains("python3"),
+        "BinaryNotFound must not mention python3: {display}"
     );
 }
 

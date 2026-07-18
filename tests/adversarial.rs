@@ -100,20 +100,88 @@ fn adversarial_csv_escapes_comma_quote_newline() {
 }
 
 #[test]
+fn adversarial_dict_shaped_techniques_matches_list_fixture() {
+    let list_resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": [{
+                "parameter": "id",
+                "data": [
+                    {
+                        "title": "AND boolean-based blind - WHERE or HAVING clause",
+                        "payload": "id=1 AND 8888=8888"
+                    },
+                    {
+                        "technique": "time-based blind",
+                        "payload": "id=1 AND SLEEP(5)"
+                    }
+                ]
+            }]
+        }],
+        "error": null,
+        "message": null
+    }));
+    let dict_resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": [{
+                "parameter": "id",
+                "data": {
+                    "2": {
+                        "technique": "time-based blind",
+                        "payload": "id=1 AND SLEEP(5)"
+                    },
+                    "1": {
+                        "title": "AND boolean-based blind - WHERE or HAVING clause",
+                        "payload": "id=1 AND 8888=8888"
+                    }
+                }
+            }]
+        }],
+        "error": null,
+        "message": null
+    }));
+
+    let list_findings = list_resp.findings();
+    let dict_findings = dict_resp.findings();
+    assert_eq!(list_findings.len(), dict_findings.len());
+    for (list, dict) in list_findings.iter().zip(dict_findings.iter()) {
+        assert_eq!(list.parameter, dict.parameter);
+        assert_eq!(list.vulnerability_type, dict.vulnerability_type);
+        assert_eq!(list.payload, dict.payload);
+    }
+}
+
+#[test]
 fn adversarial_markdown_escapes_pipe_in_payload() {
     let findings = vec![SqlmapFinding::new(
-        "id",
-        "UNION",
+        "id|param",
+        "UNION|query",
         "1|2|3",
         json!({}),
     )];
     let md = format_findings(&findings, OutputFormat::Markdown);
     assert!(
+        md.contains("id\\|param"),
+        "pipe characters in parameter must be escaped: {md}"
+    );
+    assert!(
+        md.contains("UNION\\|query"),
+        "pipe characters in vulnerability_type must be escaped: {md}"
+    );
+    assert!(
         md.contains("1\\|2\\|3"),
         "pipe characters in payload must be escaped for markdown tables: {md}"
     );
     assert!(
-        !md.contains("| 1|2|3 |"),
-        "unescaped pipe must not break table columns: {md}"
+        !md.contains("id|param") && !md.contains("UNION|query"),
+        "unescaped pipes must not appear in markdown table cells: {md}"
+    );
+    assert_eq!(
+        md.lines().count(),
+        3,
+        "markdown table must have header, separator, and one data row: {md}"
     );
 }

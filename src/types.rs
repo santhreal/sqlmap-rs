@@ -40,6 +40,8 @@ pub struct StatusResponse {
     pub status: Option<String>,
     /// Underlying process exit code (populated on termination).
     pub returncode: Option<i32>,
+    /// Error or informational message when `success` is false.
+    pub message: Option<String>,
 }
 
 /// A chunk of extracted data reported by the SQLMap engine.
@@ -127,7 +129,7 @@ impl fmt::Display for SqlmapFinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[SQLi] {vtype} on param '{param}' — payload: {payload}",
+            "[SQLi] {vtype} on param '{param}' - payload: {payload}",
             vtype = self.vulnerability_type,
             param = self.parameter,
             payload = self.payload,
@@ -137,6 +139,54 @@ impl fmt::Display for SqlmapFinding {
 
 fn is_confirmed_finding(vulnerability_type: &str, payload: &str) -> bool {
     !payload.is_empty() && vulnerability_type != "unknown"
+}
+
+fn technique_entries(data: &serde_json::Value) -> Vec<&serde_json::Value> {
+    if let Some(arr) = data.as_array() {
+        return arr.iter().collect();
+    }
+    if let Some(map) = data.as_object() {
+        let mut entries: Vec<_> = map.iter().collect();
+        entries.sort_by(
+            |(a, _), (b, _)| match (a.parse::<u64>(), b.parse::<u64>()) {
+                (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+                (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+                (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                (Err(_), Err(_)) => a.cmp(b),
+            },
+        );
+        return entries.into_iter().map(|(_, v)| v).collect();
+    }
+    vec![]
+}
+
+fn push_technique_finding(
+    findings: &mut Vec<SqlmapFinding>,
+    parameter: &str,
+    tech: &serde_json::Value,
+) {
+    let Some(tech_obj) = tech.as_object() else {
+        return;
+    };
+    let vulnerability_type = tech_obj
+        .get("technique")
+        .or_else(|| tech_obj.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let payload = tech_obj
+        .get("payload")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if is_confirmed_finding(&vulnerability_type, &payload) {
+        findings.push(SqlmapFinding {
+            parameter: parameter.to_string(),
+            vulnerability_type,
+            payload,
+            details: tech.clone(),
+        });
+    }
 }
 
 impl DataResponse {
@@ -168,32 +218,13 @@ impl DataResponse {
                     .unwrap_or("unknown")
                     .to_string();
 
-                if let Some(nested) = obj.get("data").and_then(|v| v.as_array()) {
-                    for tech in nested {
-                        let Some(tech_obj) = tech.as_object() else {
-                            continue;
-                        };
-                        let vulnerability_type = tech_obj
-                            .get("technique")
-                            .or_else(|| tech_obj.get("title"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        let payload = tech_obj
-                            .get("payload")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        if is_confirmed_finding(&vulnerability_type, &payload) {
-                            findings.push(SqlmapFinding {
-                                parameter: parameter.clone(),
-                                vulnerability_type,
-                                payload,
-                                details: tech.clone(),
-                            });
+                if let Some(data_val) = obj.get("data") {
+                    if data_val.is_array() || data_val.is_object() {
+                        for tech in technique_entries(data_val) {
+                            push_technique_finding(&mut findings, &parameter, tech);
                         }
+                        continue;
                     }
-                    continue;
                 }
 
                 // Legacy flat shape (non-api fixtures / older payloads).
@@ -272,10 +303,10 @@ pub fn format_findings(findings: &[SqlmapFinding], format: OutputFormat) -> Stri
             buf.push_str("|-----------|------|----------|\n");
             for f in findings {
                 buf.push_str(&format!(
-                    "| `{}` | {} | `{}` |\n",
-                    f.parameter,
-                    f.vulnerability_type,
-                    f.payload.replace('|', "\\|"),
+                    "| `{}` | `{}` | `{}` |\n",
+                    markdown_escape(&f.parameter),
+                    markdown_escape(&f.vulnerability_type),
+                    markdown_escape(&f.payload),
                 ));
             }
             buf
@@ -306,6 +337,11 @@ fn csv_escape(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// Escape pipe characters for Markdown table cells.
+fn markdown_escape(value: &str) -> String {
+    value.replace('|', "\\|")
 }
 
 // ── SqlmapOptions ────────────────────────────────────────────────

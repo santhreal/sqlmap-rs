@@ -15,8 +15,8 @@ pub enum SqlmapError {
     #[error("API process error: {0}")]
     ProcessError(#[from] std::io::Error),
 
-    /// The `sqlmapapi` binary or `python3` with sqlmap could not be found.
-    #[error("binary not found: {0} — ensure python3 and sqlmap are in PATH")]
+    /// The `sqlmapapi` binary could not be found.
+    #[error("binary not found: {0} - ensure sqlmapapi is in PATH")]
     BinaryNotFound(String),
 
     /// HTTP request error when communicating with the REST API.
@@ -40,7 +40,7 @@ pub enum SqlmapError {
     InvalidTask(String),
 
     /// The daemon failed to bind to the requested port.
-    #[error("port {port} is already in use — choose a free port")]
+    #[error("port {port} is already in use - choose a free port")]
     PortConflict {
         /// The port that was requested.
         port: u16,
