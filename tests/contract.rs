@@ -42,7 +42,7 @@ fn contract_readme_setup_ab_github_only() {
 #[test]
 fn contract_readme_version_matches_cargo_toml() {
     let version = cargo_toml_version();
-    assert_eq!(version, "0.3.3", "Cargo.toml version pin");
+    assert_eq!(version, "0.3.4", "Cargo.toml version pin");
     let readme = fs::read_to_string("README.md").expect("read README");
     assert!(
         readme.contains(&format!("sqlmap-rs = \"{version}\"")),
@@ -111,11 +111,15 @@ fn contract_malformed_response_display_is_stable() {
 
 #[test]
 fn contract_invalid_task_display_includes_task_id() {
-    let err = SqlmapError::InvalidTask("".into());
+    let err = SqlmapError::InvalidTask("missing taskid".into());
     let display = format!("{err}");
     assert!(
         display.contains("invalid task ID"),
         "InvalidTask display must name the variant: {display}"
+    );
+    assert!(
+        display.contains("missing taskid"),
+        "InvalidTask display must include the marker: {display}"
     );
 }
 

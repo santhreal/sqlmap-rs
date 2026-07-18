@@ -137,8 +137,13 @@ impl fmt::Display for SqlmapFinding {
     }
 }
 
+fn is_meaningful_vulnerability_type(vulnerability_type: &str) -> bool {
+    let trimmed = vulnerability_type.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("unknown")
+}
+
 fn is_confirmed_finding(vulnerability_type: &str, payload: &str) -> bool {
-    !payload.is_empty() && vulnerability_type != "unknown"
+    is_meaningful_vulnerability_type(vulnerability_type) && !payload.trim().is_empty()
 }
 
 fn technique_entries(data: &serde_json::Value) -> Vec<&serde_json::Value> {
@@ -328,7 +333,7 @@ pub fn format_findings(findings: &[SqlmapFinding], format: OutputFormat) -> Stri
 
 /// Escape a value for CSV output.
 fn csv_escape(value: &str) -> String {
-    if value.contains(',') || value.contains('"') || value.contains('\n') {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
@@ -340,6 +345,8 @@ fn csv_escape(value: &str) -> String {
 fn markdown_escape(value: &str) -> String {
     value
         .replace('\\', "\\\\")
+        .replace('\r', " ")
+        .replace('\n', "<br>")
         .replace('|', "\\|")
         .replace('`', "&#96;")
 }

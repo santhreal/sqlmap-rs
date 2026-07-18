@@ -65,6 +65,20 @@ fn gap_raii_cleanup_documented_as_best_effort_in_readme() {
 }
 
 #[test]
+fn gap_os_shell_serializes_but_may_fail_against_real_api() {
+    let opts = SqlmapOptions::builder().os_shell(true).build();
+    let json = serde_json::to_string(&opts).expect("serialize");
+    assert!(
+        json.contains("\"osShell\":true"),
+        "gap: os_shell must serialize as osShell when set"
+    );
+    assert!(
+        !json.contains("\"os_shell\""),
+        "gap: Rust field name must not leak into JSON"
+    );
+}
+
+#[test]
 fn gap_sql_shell_serializes_but_may_fail_against_real_api() {
     // Field exists and serializes to sqlmap's REST key; interactive sql shell
     // is not validated against a live daemon in this crate (gap).

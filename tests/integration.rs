@@ -174,9 +174,12 @@ fn mock_sequence(responses: Vec<(&'static str, u16)>) -> MockRoute {
     }
 }
 
-fn assert_invalid_task(err: SqlmapError) {
+fn assert_invalid_task(err: SqlmapError, needle: &str) {
     match err {
-        SqlmapError::InvalidTask(_) => {}
+        SqlmapError::InvalidTask(msg) => assert!(
+            msg.contains(needle),
+            "expected InvalidTask containing {needle:?}, got {msg:?}"
+        ),
         other => panic!("expected InvalidTask, got {other:?}"),
     }
 }
@@ -543,7 +546,119 @@ async fn integration_create_task_rejects_empty_taskid() {
         Err(e) => e,
         Ok(_) => panic!("empty taskid must fail"),
     };
-    assert_invalid_task(err);
+    assert_invalid_task(err, "empty taskid");
+}
+
+#[tokio::test]
+async fn integration_fetch_data_rejects_http_500() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/data",
+        mock_status(r#"{"success":false,"message":"server blew up"}"#, 500),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::new(mock.port, false, None)
+        .await
+        .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    let err = task.fetch_data().await.expect_err("must reject HTTP 500");
+    assert_api_error_contains(err, "HTTP 500");
+}
+
+#[tokio::test]
+async fn integration_spawn_local_rejects_port_conflict() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let port = listener.local_addr().expect("local addr").port();
+
+    let err = match SqlmapEngine::new(port, true, Some("/nonexistent/sqlmapapi-binary")).await {
+        Err(e) => e,
+        Ok(_) => panic!("occupied port must fail before spawn"),
+    };
+    match err {
+        SqlmapError::PortConflict {
+            port: conflict_port,
+        } => assert_eq!(conflict_port, port),
+        other => panic!("expected PortConflict, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn integration_wait_after_stop_accepts_non_zero_returncode() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert("/scan/mock-task/stop", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_ok(r#"{"success":true,"status":"terminated","returncode":-15}"#),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    task.stop().await.expect("stop must succeed");
+    task.wait_for_completion(2)
+        .await
+        .expect("wait after stop must accept signal returncode");
+}
+
+#[tokio::test]
+async fn integration_wait_after_kill_accepts_non_zero_returncode() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert("/scan/mock-task/kill", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_ok(r#"{"success":true,"status":"terminated","returncode":9}"#),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    task.kill().await.expect("kill must succeed");
+    task.wait_for_completion(2)
+        .await
+        .expect("wait after kill must accept signal returncode");
 }
 
 #[tokio::test]

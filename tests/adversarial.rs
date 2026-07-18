@@ -100,6 +100,85 @@ fn adversarial_csv_escapes_comma_quote_newline() {
 }
 
 #[test]
+fn adversarial_csv_quotes_lone_carriage_return() {
+    let findings = vec![SqlmapFinding::new("id", "error-based", "a\rb", json!({}))];
+    let csv = format_findings(&findings, OutputFormat::Csv);
+    assert!(
+        csv.contains("\"a\rb\""),
+        "lone \\r in payload must trigger CSV quoting: {csv}"
+    );
+}
+
+#[test]
+fn adversarial_markdown_replaces_newlines_in_cells() {
+    let findings = vec![SqlmapFinding::new(
+        "id\nparam",
+        "error\r\nbased",
+        "a\nb\rc",
+        json!({}),
+    )];
+    let md = format_findings(&findings, OutputFormat::Markdown);
+    assert!(
+        md.contains("id<br>param"),
+        "newlines in parameter must be replaced: {md}"
+    );
+    assert!(
+        md.contains("error <br>based"),
+        "CR/LF in vulnerability_type must be replaced: {md}"
+    );
+    assert!(
+        md.contains("a<br>b c"),
+        "newlines in payload must be replaced: {md}"
+    );
+    assert_eq!(
+        md.lines().count(),
+        3,
+        "markdown table must stay one row per finding: {md}"
+    );
+}
+
+#[test]
+fn adversarial_empty_title_with_payload_not_a_finding() {
+    let resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": [{
+                "parameter": "id",
+                "data": [{ "title": "", "payload": "id=1 AND 1=1" }]
+            }]
+        }],
+        "error": null,
+        "message": null
+    }));
+    assert!(
+        resp.findings().is_empty(),
+        "empty title with payload must not become a finding"
+    );
+}
+
+#[test]
+fn adversarial_whitespace_technique_with_payload_not_a_finding() {
+    let resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": [{
+                "parameter": "id",
+                "type": "   ",
+                "payload": "id=1 AND 1=1"
+            }]
+        }],
+        "error": null,
+        "message": null
+    }));
+    assert!(
+        resp.findings().is_empty(),
+        "whitespace-only type with payload must not become a finding"
+    );
+}
+
+#[test]
 fn adversarial_dict_shaped_techniques_matches_list_fixture() {
     let list_resp = data_response_from_json(json!({
         "success": true,

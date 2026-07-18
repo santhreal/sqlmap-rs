@@ -9,10 +9,33 @@ use crate::types::{
 };
 use reqwest::Client;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, warn};
+
+const SPAWN_STDERR_SNIPPET_MAX: usize = 512;
+
+fn truncate_stderr_snippet(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let snippet = if trimmed.len() > SPAWN_STDERR_SNIPPET_MAX {
+        format!("{}…", &trimmed[..SPAWN_STDERR_SNIPPET_MAX])
+    } else {
+        trimmed.to_string()
+    };
+    Some(snippet)
+}
 
 fn map_json_error(err: reqwest::Error) -> SqlmapError {
     if err.is_decode() {
@@ -112,15 +135,32 @@ impl SqlmapEngine {
                 .arg(port.to_string())
                 .kill_on_drop(true);
 
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            cmd.stdout(Stdio::null()).stderr(Stdio::piped());
 
-            daemon_process = Some(cmd.spawn().map_err(|e| {
+            let mut child = cmd.spawn().map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     SqlmapError::BinaryNotFound(binary.to_string())
                 } else {
                     SqlmapError::ProcessError(e)
                 }
-            })?);
+            })?;
+
+            let stderr_capture = Arc::new(Mutex::new(Vec::new()));
+            if let Some(mut stderr) = child.stderr.take() {
+                let capture = Arc::clone(&stderr_capture);
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    loop {
+                        match stderr.read(&mut buf).await {
+                            Ok(0) => break,
+                            Ok(n) => capture.lock().await.extend_from_slice(&buf[..n]),
+                            Err(_) => break,
+                        }
+                    }
+                });
+            }
+
+            daemon_process = Some(child);
 
             // Wait for daemon to become responsive with a health probe.
             let mut ready = false;
@@ -134,9 +174,17 @@ impl SqlmapEngine {
             }
 
             if !ready {
-                return Err(SqlmapError::ApiError(
-                    "sqlmapapi daemon failed to become responsive within 5 seconds".into(),
-                ));
+                let stderr_snippet = {
+                    let bytes = stderr_capture.lock().await;
+                    truncate_stderr_snippet(&bytes)
+                };
+                let mut msg =
+                    "sqlmapapi daemon failed to become responsive within 5 seconds".to_string();
+                if let Some(snippet) = stderr_snippet {
+                    msg.push_str(": ");
+                    msg.push_str(&snippet);
+                }
+                return Err(SqlmapError::ApiError(msg));
             }
         } else {
             Self::probe_task_new(&http, &api_url).await?;
@@ -214,14 +262,20 @@ impl SqlmapEngine {
             ));
         }
 
-        let task_id = resp
-            .taskid
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| SqlmapError::InvalidTask(String::new()))?;
+        let task_id = match resp.taskid {
+            Some(id) if !id.is_empty() => id,
+            Some(id) => {
+                return Err(SqlmapError::InvalidTask(format!("empty taskid ({id:?})")));
+            }
+            None => {
+                return Err(SqlmapError::InvalidTask("missing taskid".into()));
+            }
+        };
 
         let task = SqlmapTask {
             engine: self,
             task_id,
+            user_stopped: Arc::new(AtomicBool::new(false)),
         };
 
         // Set the configuration options on the new task.
@@ -300,6 +354,8 @@ impl Drop for SqlmapEngine {
 pub struct SqlmapTask<'a> {
     engine: &'a SqlmapEngine,
     task_id: String,
+    /// Set after intentional [`stop`](Self::stop) or [`kill`](Self::kill).
+    user_stopped: Arc<AtomicBool>,
 }
 
 impl<'a> SqlmapTask<'a> {
@@ -371,19 +427,24 @@ impl<'a> SqlmapTask<'a> {
                 Some("running") => {
                     debug!(task_id = %self.task_id, "scan running");
                 }
-                Some("terminated") => match status.returncode {
-                    Some(0) => return Ok(()),
-                    Some(code) => {
-                        return Err(SqlmapError::ApiError(format!(
-                            "scan terminated with non-zero exit code {code}"
-                        )));
+                Some("terminated") => {
+                    if self.user_stopped.load(Ordering::Relaxed) {
+                        return Ok(());
                     }
-                    None => {
-                        return Err(SqlmapError::ApiError(
-                            "scan terminated without a process exit code".into(),
-                        ));
+                    match status.returncode {
+                        Some(0) => return Ok(()),
+                        Some(code) => {
+                            return Err(SqlmapError::ApiError(format!(
+                                "scan terminated with non-zero exit code {code}"
+                            )));
+                        }
+                        None => {
+                            return Err(SqlmapError::ApiError(
+                                "scan terminated without a process exit code".into(),
+                            ));
+                        }
                     }
-                },
+                }
                 Some("not running") => {
                     // sqlmapapi reports "not running" before start attaches a
                     // process AND after some finished states. Keep polling;
@@ -461,6 +522,7 @@ impl<'a> SqlmapTask<'a> {
                         .unwrap_or_else(|| "scan stop returned success=false".into()),
                 ));
             }
+            self.user_stopped.store(true, Ordering::Relaxed);
             Ok(())
         } else {
             Err(SqlmapError::ApiError(format!(
@@ -486,6 +548,7 @@ impl<'a> SqlmapTask<'a> {
                         .unwrap_or_else(|| "scan kill returned success=false".into()),
                 ));
             }
+            self.user_stopped.store(true, Ordering::Relaxed);
             Ok(())
         } else {
             Err(SqlmapError::ApiError(format!(

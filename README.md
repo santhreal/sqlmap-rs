@@ -23,11 +23,19 @@ A type-safe, asynchronous Rust orchestrator for the sqlmap SQL injection testing
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.3.3"
+sqlmap-rs = "0.3.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
 *Prerequisite: `sqlmapapi` must be in your system `$PATH`.*
+
+### MSRV (1.85)
+
+`rust-version = "1.85"`. An unused direct `idna_adapter = 1.1.0` dependency pins the graph below icu 2.2 (rustc 1.86+). If a future `cargo update` removes or bumps that pin, restore it or commit `Cargo.lock` before release. CI runs `cargo +1.85 tree -i icu_properties` and fails on icu 2.x.
+
+### Releases
+
+crates.io publishes are **manual** (`cargo publish`); git tags (`vX.Y.Z`) are optional and may be cut separately by maintainers. The CI `publish` job runs only when a matching tag is pushed.
 
 ## Setup (one-command)
 
