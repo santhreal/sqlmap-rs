@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-07-17
+
+### Added
+- `SqlmapTask` tracks intentional `stop()`/`kill()`; `wait_for_completion` accepts any `terminated` returncode after user stop/kill.
+- Spawn readiness failure includes a captured `sqlmapapi` stderr snippet when available.
+- Adversarial tests: CSV lone-`\r` quoting, Markdown newline/CR in cells, empty/whitespace `title`/`technique` not promoted to findings.
+- Gap test for `os_shell` → `osShell` serialization parity (with `sql_shell`).
+- Integration tests: HTTP 500 on `fetch_data`, `PortConflict` on occupied port, stop/kill then wait with non-zero returncode.
+- MSRV CI: assert `idna_adapter = 1.1.0` pin; fail if `icu_properties` 2.x appears in `cargo +1.85 tree`.
+- Contract test: `InvalidTask` display includes the invalid/missing marker.
+
+### Fixed
+- `is_confirmed_finding` requires non-empty, non-whitespace vulnerability type (not `unknown`) and non-empty payload.
+- `csv_escape` quotes fields containing `\r`.
+- `markdown_escape` replaces `\r`/`\n` in table cells.
+- `InvalidTask` carries `missing taskid` or `empty taskid (...)` instead of an empty string.
+
+### Changed
+- README: MSRV 1.85 `idna_adapter` pin break procedure; manual crates.io release note (git tags optional).
+- Releases are published to crates.io manually; matching git tags are optional and may be cut by maintainers separately.
+
 ## [0.3.3] - 2026-07-17
 
 ### Added

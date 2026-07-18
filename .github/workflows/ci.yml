@@ -25,6 +25,15 @@ jobs:
       - name: Verify MSRV build
         run: cargo +1.85 build
 
+      # idna_adapter 1.2+ pulls icu 2.2 (rustc 1.86+). Direct pin holds MSRV 1.85.
+      - name: Verify idna_adapter MSRV pin
+        run: |
+          grep -q 'idna_adapter = { version = "=1.1.0"' Cargo.toml
+          if cargo +1.85 tree -i icu_properties 2>/dev/null | grep -q 'icu_properties v2'; then
+            echo "icu_properties 2.x detected — breaks MSRV 1.85"
+            exit 1
+          fi
+
   check:
     name: Check, Test, Lint
     runs-on: ubuntu-latest
