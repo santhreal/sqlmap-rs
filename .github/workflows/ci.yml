@@ -12,6 +12,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  msrv:
+    name: MSRV (1.71)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.71 toolchain
+        uses: dtolnay/rust-toolchain@1.71
+
+      - name: Verify MSRV build
+        run: cargo +1.71 build
+
   check:
     name: Check, Test, Lint
     runs-on: ubuntu-latest

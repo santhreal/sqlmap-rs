@@ -45,7 +45,14 @@ impl SqlmapEngine {
         spawn_local: bool,
         binary_path: Option<&str>,
     ) -> Result<Self, SqlmapError> {
-        Self::with_config(port, spawn_local, binary_path, Duration::from_secs(10), Duration::from_millis(1000)).await
+        Self::with_config(
+            port,
+            spawn_local,
+            binary_path,
+            Duration::from_secs(10),
+            Duration::from_millis(1000),
+        )
+        .await
     }
 
     /// Launches a daemon with custom HTTP timeout and polling interval.
@@ -61,12 +68,22 @@ impl SqlmapEngine {
         request_timeout: Duration,
         poll_interval: Duration,
     ) -> Result<Self, SqlmapError> {
+        if poll_interval.is_zero() {
+            return Err(SqlmapError::ApiError(
+                "poll_interval must be greater than zero".into(),
+            ));
+        }
+
+        if spawn_local && port == 0 {
+            return Err(SqlmapError::ApiError(
+                "port 0 is not supported when spawning local sqlmapapi".into(),
+            ));
+        }
+
         let mut daemon_process = None;
         let api_url = format!("http://127.0.0.1:{port}");
 
-        let http = Client::builder()
-            .timeout(request_timeout)
-            .build()?;
+        let http = Client::builder().timeout(request_timeout).build()?;
 
         if spawn_local {
             // Check if port is already in use before spawning.
@@ -78,13 +95,21 @@ impl SqlmapEngine {
 
             let mut cmd = Command::new(binary);
             cmd.arg("-s")
-                .arg("-H").arg("127.0.0.1")
-                .arg("-p").arg(port.to_string())
+                .arg("-H")
+                .arg("127.0.0.1")
+                .arg("-p")
+                .arg(port.to_string())
                 .kill_on_drop(true);
 
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
 
-            daemon_process = Some(cmd.spawn()?);
+            daemon_process = Some(cmd.spawn().map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    SqlmapError::BinaryNotFound(binary.to_string())
+                } else {
+                    SqlmapError::ProcessError(e)
+                }
+            })?);
 
             // Wait for daemon to become responsive with a health probe.
             let mut ready = false;
@@ -126,7 +151,10 @@ impl SqlmapEngine {
     /// Creates and configures a new scanning task, returning an RAII wrapper.
     ///
     /// The task is automatically deleted from the daemon when dropped.
-    pub async fn create_task(&self, options: &SqlmapOptions) -> Result<SqlmapTask<'_>, SqlmapError> {
+    pub async fn create_task(
+        &self,
+        options: &SqlmapOptions,
+    ) -> Result<SqlmapTask<'_>, SqlmapError> {
         let uri = format!("{}/task/new", self.api_url);
         let resp = self
             .http
@@ -243,23 +271,23 @@ impl<'a> SqlmapTask<'a> {
     pub async fn start(&self) -> Result<(), SqlmapError> {
         let uri = format!("{}/scan/{}/start", self.engine.api_url, self.task_id);
         let payload = serde_json::json!({});
-        let resp = self
-            .engine
-            .http
-            .post(&uri)
-            .json(&payload)
-            .send()
-            .await?
-            .json::<BasicResponse>()
-            .await?;
+        let resp = self.engine.http.post(&uri).json(&payload).send().await?;
 
-        if !resp.success {
-            return Err(SqlmapError::ApiError(
-                resp.message
-                    .unwrap_or_else(|| "scan start returned success=false".into()),
-            ));
+        if resp.status().is_success() {
+            let body = resp.json::<BasicResponse>().await?;
+            if !body.success {
+                return Err(SqlmapError::ApiError(
+                    body.message
+                        .unwrap_or_else(|| "scan start returned success=false".into()),
+                ));
+            }
+            Ok(())
+        } else {
+            Err(SqlmapError::ApiError(format!(
+                "scan start returned HTTP {}",
+                resp.status()
+            )))
         }
-        Ok(())
     }
 
     /// Polls the task status until completion or timeout.
@@ -285,7 +313,8 @@ impl<'a> SqlmapTask<'a> {
 
             if !resp.success {
                 return Err(SqlmapError::ApiError(
-                    "status check returned success=false".into(),
+                    resp.message
+                        .unwrap_or_else(|| "status check returned success=false".into()),
                 ));
             }
 
@@ -370,22 +399,23 @@ impl<'a> SqlmapTask<'a> {
     /// The task can potentially be restarted after stopping.
     pub async fn stop(&self) -> Result<(), SqlmapError> {
         let uri = format!("{}/scan/{}/stop", self.engine.api_url, self.task_id);
-        let resp = self
-            .engine
-            .http
-            .get(uri)
-            .send()
-            .await?
-            .json::<BasicResponse>()
-            .await?;
+        let resp = self.engine.http.get(uri).send().await?;
 
-        if !resp.success {
-            return Err(SqlmapError::ApiError(
-                resp.message
-                    .unwrap_or_else(|| "scan stop returned success=false".into()),
-            ));
+        if resp.status().is_success() {
+            let body = resp.json::<BasicResponse>().await?;
+            if !body.success {
+                return Err(SqlmapError::ApiError(
+                    body.message
+                        .unwrap_or_else(|| "scan stop returned success=false".into()),
+                ));
+            }
+            Ok(())
+        } else {
+            Err(SqlmapError::ApiError(format!(
+                "scan stop returned HTTP {}",
+                resp.status()
+            )))
         }
-        Ok(())
     }
 
     /// Forcefully kills a running scan.
@@ -394,22 +424,23 @@ impl<'a> SqlmapTask<'a> {
     /// may still be retrievable via [`fetch_data`](Self::fetch_data).
     pub async fn kill(&self) -> Result<(), SqlmapError> {
         let uri = format!("{}/scan/{}/kill", self.engine.api_url, self.task_id);
-        let resp = self
-            .engine
-            .http
-            .get(uri)
-            .send()
-            .await?
-            .json::<BasicResponse>()
-            .await?;
+        let resp = self.engine.http.get(uri).send().await?;
 
-        if !resp.success {
-            return Err(SqlmapError::ApiError(
-                resp.message
-                    .unwrap_or_else(|| "scan kill returned success=false".into()),
-            ));
+        if resp.status().is_success() {
+            let body = resp.json::<BasicResponse>().await?;
+            if !body.success {
+                return Err(SqlmapError::ApiError(
+                    body.message
+                        .unwrap_or_else(|| "scan kill returned success=false".into()),
+                ));
+            }
+            Ok(())
+        } else {
+            Err(SqlmapError::ApiError(format!(
+                "scan kill returned HTTP {}",
+                resp.status()
+            )))
         }
-        Ok(())
     }
 
     /// Retrieves the current option values configured for this task.
@@ -445,10 +476,7 @@ impl<'a> Drop for SqlmapTask<'a> {
     fn drop(&mut self) {
         // Guarantee the server reclaims task memory when this struct goes out of scope.
         // We use Handle::try_current() to avoid panicking if no Tokio runtime is active.
-        let uri = format!(
-            "{}/task/{}/delete",
-            self.engine.api_url, self.task_id
-        );
+        let uri = format!("{}/task/{}/delete", self.engine.api_url, self.task_id);
         let client = self.engine.http.clone();
 
         if let Ok(handle) = tokio::runtime::Handle::try_current() {

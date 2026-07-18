@@ -7,7 +7,7 @@
 //!   conda activate sqlmap-env
 //!   # OR: ./setup.sh
 
-use sqlmap_rs::{SqlmapEngine, SqlmapOptions, OutputFormat};
+use sqlmap_rs::{OutputFormat, SqlmapEngine, SqlmapOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -82,16 +82,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  No SQL injection vulnerabilities detected.");
     } else {
         // ── 8. Multi-format output ───────────────────────
-        println!("\n{}", sqlmap_rs::types::format_findings(&findings, OutputFormat::Plain));
+        println!(
+            "\n{}",
+            sqlmap_rs::types::format_findings(&findings, OutputFormat::Plain)
+        );
 
         println!("=== JSON ===");
-        println!("{}", sqlmap_rs::types::format_findings(&findings, OutputFormat::JsonPretty));
+        println!(
+            "{}",
+            sqlmap_rs::types::format_findings(&findings, OutputFormat::JsonPretty)
+        );
 
         println!("=== CSV ===");
-        println!("{}", sqlmap_rs::types::format_findings(&findings, OutputFormat::Csv));
+        println!(
+            "{}",
+            sqlmap_rs::types::format_findings(&findings, OutputFormat::Csv)
+        );
 
         println!("=== Markdown ===");
-        println!("{}", sqlmap_rs::types::format_findings(&findings, OutputFormat::Markdown));
+        println!(
+            "{}",
+            sqlmap_rs::types::format_findings(&findings, OutputFormat::Markdown)
+        );
     }
 
     // ── 9. Inspect configured options ────────────────────

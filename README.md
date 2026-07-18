@@ -6,24 +6,24 @@
 
 **Available on Crates.io:** [https://crates.io/crates/sqlmap-rs](https://crates.io/crates/sqlmap-rs)
 
-A type-safe, asynchronous Rust orchestrator for the world's most powerful SQL injection testing tool.
+A type-safe, asynchronous Rust orchestrator for the sqlmap SQL injection testing tool.
 
 `sqlmap-rs` spawns sqlmap's native REST server (`sqlmapapi.py`) on **localhost** (`127.0.0.1`) and communicates via a strictly-typed Tokio JSON pipeline. Tasks use RAII-style cleanup on drop (best-effort; task deletion requires an active Tokio runtime).
 
 ## Features
 
-- **Core API coverage** — start, stop, kill, log, data, option introspection
-- **Builder pattern** — fluent `SqlmapOptions::builder()` with 40+ options
-- **Multi-format output** — JSON, CSV, Markdown, and plain text
-- **RAII lifecycle** — best-effort task cleanup on drop, daemon killed on engine drop
-- **Port conflict detection** — prevents silent connection to wrong daemons
-- **Configurable polling** — custom intervals and HTTP timeouts
+- **Core API coverage** - start, stop, kill, log, data, option introspection
+- **Builder pattern** - fluent `SqlmapOptions::builder()` with 40+ options
+- **Multi-format output** - JSON, CSV, Markdown, and plain text
+- **RAII lifecycle** - best-effort task cleanup on drop, daemon killed on engine drop
+- **Port conflict detection** - prevents silent connection to wrong daemons
+- **Configurable polling** - custom intervals and HTTP timeouts
 
 ## Installation
 
 ```toml
 [dependencies]
-sqlmap-rs = "0.3.0"
+sqlmap-rs = "0.3.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -58,7 +58,7 @@ use sqlmap_rs::{SqlmapEngine, SqlmapOptions, OutputFormat};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Boot the daemon — auto-shut-down on drop
+    // 1. Boot the daemon - auto-shut-down on drop
     let engine = SqlmapEngine::new(8775, true, None).await?;
 
     // 2. Configure scan with the builder pattern

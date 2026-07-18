@@ -1,5 +1,5 @@
 use sqlmap_rs::types::{DataResponse, NewTaskResponse, StatusResponse};
-use sqlmap_rs::{SqlmapOptions, OutputFormat, SqlmapFinding};
+use sqlmap_rs::{OutputFormat, SqlmapFinding, SqlmapOptions};
 
 #[test]
 fn test_new_task_parsing() {
@@ -161,6 +161,9 @@ fn test_output_formats() {
 }
 
 #[test]
-fn test_is_available_static_method() {
-    let _ = sqlmap_rs::SqlmapEngine::is_available();
+fn test_is_available_at_nonexistent_binary_is_false() {
+    assert!(
+        !sqlmap_rs::SqlmapEngine::is_available_at("/nonexistent-sqlmapapi-xyz"),
+        "missing binary path must report unavailable"
+    );
 }
