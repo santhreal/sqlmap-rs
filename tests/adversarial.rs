@@ -185,3 +185,74 @@ fn adversarial_markdown_escapes_pipe_in_payload() {
         "markdown table must have header, separator, and one data row: {md}"
     );
 }
+
+#[test]
+fn adversarial_outer_dict_shaped_type1_matches_array_fixture() {
+    let array_resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": [{
+                "parameter": "id",
+                "data": [{
+                    "title": "boolean-based blind",
+                    "payload": "id=1 AND 1=1"
+                }]
+            }]
+        }],
+        "error": null,
+        "message": null
+    }));
+    let dict_resp = data_response_from_json(json!({
+        "success": true,
+        "data": [{
+            "type": 1,
+            "value": {
+                "0": {
+                    "parameter": "id",
+                    "data": [{
+                        "title": "boolean-based blind",
+                        "payload": "id=1 AND 1=1"
+                    }]
+                }
+            }
+        }],
+        "error": null,
+        "message": null
+    }));
+
+    let array_findings = array_resp.findings();
+    let dict_findings = dict_resp.findings();
+    assert_eq!(array_findings.len(), dict_findings.len());
+    assert_eq!(array_findings[0].parameter, dict_findings[0].parameter);
+    assert_eq!(
+        array_findings[0].vulnerability_type,
+        dict_findings[0].vulnerability_type
+    );
+    assert_eq!(array_findings[0].payload, dict_findings[0].payload);
+}
+
+#[test]
+fn adversarial_markdown_escapes_backtick_in_cells() {
+    let findings = vec![SqlmapFinding::new(
+        "id`param",
+        "UNION`query",
+        "1`2`3",
+        json!({}),
+    )];
+    let md = format_findings(&findings, OutputFormat::Markdown);
+    assert!(
+        md.contains("&#96;"),
+        "backticks must be HTML-entity escaped for GFM tables: {md}"
+    );
+    assert!(
+        !md.contains("id`param"),
+        "raw backticks must not appear in markdown table cells: {md}"
+    );
+    let data_row = md.lines().nth(2).expect("data row");
+    assert_eq!(
+        data_row.matches('|').count(),
+        4,
+        "table row must retain 3 columns after escaping: {data_row}"
+    );
+}

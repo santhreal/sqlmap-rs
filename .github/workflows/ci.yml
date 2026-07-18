@@ -65,7 +65,7 @@ jobs:
 
   publish:
     name: Publish to crates.io
-    needs: check
+    needs: [check, msrv]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
