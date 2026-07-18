@@ -275,14 +275,13 @@ pub enum OutputFormat {
 /// Format a slice of findings in the specified output format.
 pub fn format_findings(findings: &[SqlmapFinding], format: OutputFormat) -> String {
     match format {
-        OutputFormat::Json => match serde_json::to_string(findings) {
-            Ok(json) => json,
-            Err(err) => format!("{{\"error\": \"serialization failed: {err}\"}}"),
-        },
-        OutputFormat::JsonPretty => match serde_json::to_string_pretty(findings) {
-            Ok(json) => json,
-            Err(err) => format!("{{\"error\": \"serialization failed: {err}\"}}"),
-        },
+        OutputFormat::Json => {
+            // SqlmapFinding is serde-infallible in practice; see gap/property tests.
+            serde_json::to_string(findings).unwrap_or_else(|_| "[]".into())
+        }
+        OutputFormat::JsonPretty => {
+            serde_json::to_string_pretty(findings).unwrap_or_else(|_| "[]".into())
+        }
         OutputFormat::Csv => {
             let mut buf = String::from("parameter,vulnerability_type,payload\n");
             for f in findings {

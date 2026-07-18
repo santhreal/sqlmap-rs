@@ -16,7 +16,7 @@ fn cargo_toml_version() -> String {
 #[test]
 fn contract_readme_version_matches_cargo_toml() {
     let version = cargo_toml_version();
-    assert_eq!(version, "0.3.1", "Cargo.toml version pin");
+    assert_eq!(version, "0.3.2", "Cargo.toml version pin");
     let readme = fs::read_to_string("README.md").expect("read README");
     assert!(
         readme.contains(&format!("sqlmap-rs = \"{version}\"")),
@@ -75,6 +75,22 @@ fn contract_log_response_success_false_deserializes() {
     let resp: LogResponse = serde_json::from_str(raw).expect("deserialize");
     assert!(!resp.success);
     assert_eq!(resp.message.as_deref(), Some("log unavailable"));
+}
+
+#[test]
+fn contract_malformed_response_display_is_stable() {
+    let err = SqlmapError::MalformedResponse;
+    assert_eq!(format!("{err}"), "malformed JSON response structure");
+}
+
+#[test]
+fn contract_invalid_task_display_includes_task_id() {
+    let err = SqlmapError::InvalidTask("".into());
+    let display = format!("{err}");
+    assert!(
+        display.contains("invalid task ID"),
+        "InvalidTask display must name the variant: {display}"
+    );
 }
 
 #[test]

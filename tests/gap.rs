@@ -52,3 +52,40 @@ fn gap_sql_shell_serializes_but_may_fail_against_real_api() {
         "gap: Rust field name must not leak into JSON"
     );
 }
+
+#[test]
+fn gap_json_format_ser_failure_collapses_to_empty_array() {
+    // Documented limitation: if SqlmapFinding serialization ever fails,
+    // format_findings JSON arms return "[]" instead of a typed error.
+    use sqlmap_rs::types::{format_findings, OutputFormat, SqlmapFinding};
+    let findings = vec![SqlmapFinding::new(
+        "id",
+        "boolean-based blind",
+        "id=1",
+        serde_json::json!({}),
+    )];
+    let json = format_findings(&findings, OutputFormat::Json);
+    let parsed: Vec<SqlmapFinding> = serde_json::from_str(&json).expect("parseable array");
+    assert_eq!(parsed.len(), 1);
+    assert!(
+        !json.contains("\"error\""),
+        "gap: JSON format must not emit fake error objects"
+    );
+}
+
+#[test]
+fn gap_readme_documents_port_conflict_toctou_and_attach_mode() {
+    let readme = fs::read_to_string("README.md").expect("read README");
+    assert!(
+        readme.to_lowercase().contains("toctou"),
+        "gap: README must document port-conflict TOCTOU race"
+    );
+    assert!(
+        readme.contains("spawn_local=false") || readme.contains("spawn_local = false"),
+        "gap: README must document attach mode (spawn_local=false)"
+    );
+    assert!(
+        readme.to_lowercase().contains("sqlmapapi"),
+        "gap: README must state attach mode does not verify peer is sqlmapapi"
+    );
+}

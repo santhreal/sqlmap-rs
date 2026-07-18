@@ -26,6 +26,30 @@ proptest! {
     }
 
     #[test]
+    fn prop_finding_json_always_parseable_array(
+        findings in prop::collection::vec(
+            (
+                any::<String>(),
+                any::<String>(),
+                any::<String>(),
+            ),
+            0..12,
+        )
+    ) {
+        let findings: Vec<SqlmapFinding> = findings
+            .into_iter()
+            .map(|(parameter, vulnerability_type, payload)| {
+                SqlmapFinding::new(parameter, vulnerability_type, payload, json!({}))
+            })
+            .collect();
+        let json_out = format_findings(&findings, OutputFormat::Json);
+        let parsed: Vec<SqlmapFinding> = serde_json::from_str(&json_out)
+            .expect("JSON output must always deserialize as a findings array");
+        prop_assert_eq!(parsed.len(), findings.len());
+        prop_assert!(!json_out.contains("\"error\""));
+    }
+
+    #[test]
     fn prop_csv_header_and_single_data_line(
         parameter in "[a-zA-Z0-9_]{1,16}",
         vulnerability_type in "[a-zA-Z0-9 _-]{1,32}",

@@ -13,17 +13,17 @@ env:
 
 jobs:
   msrv:
-    name: MSRV (1.71)
+    name: MSRV (1.85)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust 1.71 toolchain
-        uses: dtolnay/rust-toolchain@1.71
+      - name: Install Rust 1.85 toolchain
+        uses: dtolnay/rust-toolchain@1.85
 
       - name: Verify MSRV build
-        run: cargo +1.71 build
+        run: cargo +1.85 build
 
   check:
     name: Check, Test, Lint
@@ -44,7 +44,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.toml') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check

@@ -1,14 +1,23 @@
 //! Integration tests with a mock localhost API (no live sqlmapapi required).
 use sqlmap_rs::{SqlmapEngine, SqlmapError, SqlmapOptions};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
+enum MockBody {
+    Static(&'static str),
+    Rotating {
+        bodies: Arc<Vec<&'static str>>,
+        index: Arc<AtomicUsize>,
+    },
+}
+
 struct MockRoute {
-    body: &'static str,
+    body: MockBody,
     status: u16,
 }
 
@@ -20,6 +29,10 @@ struct MockApi {
 
 impl MockApi {
     async fn start(routes: HashMap<&'static str, MockRoute>) -> Self {
+        Self::start_inner(routes).await
+    }
+
+    async fn start_inner(routes: HashMap<&'static str, MockRoute>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind mock listener");
@@ -42,14 +55,25 @@ impl MockApi {
                             .and_then(|line| line.split_whitespace().nth(1))
                             .unwrap_or("");
 
+                        let default_route = MockRoute {
+                            body: MockBody::Static(
+                                r#"{"success":false,"message":"unhandled route"}"#,
+                            ),
+                            status: 200,
+                        };
                         let route = routes
                             .iter()
                             .find(|(prefix, _)| path.contains(**prefix))
                             .map(|(_, route)| route)
-                            .unwrap_or(&MockRoute {
-                                body: r#"{"success":false,"message":"unhandled route"}"#,
-                                status: 200,
-                            });
+                            .unwrap_or(&default_route);
+
+                        let body = match &route.body {
+                            MockBody::Static(text) => *text,
+                            MockBody::Rotating { bodies, index } => {
+                                let i = index.fetch_add(1, Ordering::SeqCst);
+                                bodies[i.min(bodies.len().saturating_sub(1))]
+                            }
+                        };
 
                         let status_line = match route.status {
                             200 => "200 OK",
@@ -62,8 +86,8 @@ impl MockApi {
                         };
                         let response = format!(
                             "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            route.body.len(),
-                            route.body
+                            body.len(),
+                            body
                         );
                         let _ = stream.write_all(response.as_bytes()).await;
                     }
@@ -98,11 +122,48 @@ fn assert_api_error_contains(err: SqlmapError, needle: &str) {
 }
 
 fn mock_ok(body: &'static str) -> MockRoute {
-    MockRoute { body, status: 200 }
+    MockRoute {
+        body: MockBody::Static(body),
+        status: 200,
+    }
 }
 
 fn mock_status(body: &'static str, status: u16) -> MockRoute {
-    MockRoute { body, status }
+    MockRoute {
+        body: MockBody::Static(body),
+        status,
+    }
+}
+
+fn mock_rotating(bodies: Vec<&'static str>) -> MockRoute {
+    MockRoute {
+        body: MockBody::Rotating {
+            bodies: Arc::new(bodies),
+            index: Arc::new(AtomicUsize::new(0)),
+        },
+        status: 200,
+    }
+}
+
+fn assert_invalid_task(err: SqlmapError) {
+    match err {
+        SqlmapError::InvalidTask(_) => {}
+        other => panic!("expected InvalidTask, got {other:?}"),
+    }
+}
+
+fn assert_malformed_response(err: SqlmapError) {
+    match err {
+        SqlmapError::MalformedResponse => {}
+        other => panic!("expected MalformedResponse, got {other:?}"),
+    }
+}
+
+fn assert_timeout(err: SqlmapError, secs: u64) {
+    match err {
+        SqlmapError::Timeout(s) => assert_eq!(s, secs),
+        other => panic!("expected Timeout({secs}), got {other:?}"),
+    }
 }
 
 fn scan_options() -> SqlmapOptions {
@@ -338,4 +399,173 @@ async fn integration_kill_rejects_non_success_http() {
 
     let err = task.kill().await.expect_err("must reject HTTP 404");
     assert_api_error_contains(err, "HTTP 404");
+}
+
+#[tokio::test]
+async fn integration_create_task_rejects_empty_taskid() {
+    let mut routes = HashMap::new();
+    routes.insert("/task/new", mock_ok(r#"{"success":true,"taskid":""}"#));
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::new(mock.port, false, None)
+        .await
+        .expect("engine without local spawn");
+
+    let err = match engine.create_task(&scan_options()).await {
+        Err(e) => e,
+        Ok(_) => panic!("empty taskid must fail"),
+    };
+    assert_invalid_task(err);
+}
+
+#[tokio::test]
+async fn integration_create_task_rejects_malformed_json() {
+    let mut routes = HashMap::new();
+    routes.insert("/task/new", mock_ok(r#"not-json"#));
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::new(mock.port, false, None)
+        .await
+        .expect("engine without local spawn");
+
+    let err = match engine.create_task(&scan_options()).await {
+        Err(e) => e,
+        Ok(_) => panic!("malformed JSON must fail"),
+    };
+    assert_malformed_response(err);
+}
+
+#[tokio::test]
+async fn integration_wait_for_completion_running_to_terminated() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_rotating(vec![
+            r#"{"success":true,"status":"running","returncode":null}"#,
+            r#"{"success":true,"status":"terminated","returncode":0}"#,
+        ]),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    task.wait_for_completion(2)
+        .await
+        .expect("running then terminated must succeed");
+}
+
+#[tokio::test]
+async fn integration_wait_for_completion_not_running_until_timeout() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_ok(r#"{"success":true,"status":"not running","returncode":null}"#),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    let err = task
+        .wait_for_completion(1)
+        .await
+        .expect_err("not running forever must time out");
+    assert_timeout(err, 1);
+}
+
+#[tokio::test]
+async fn integration_wait_for_completion_rejects_non_zero_returncode() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_ok(r#"{"success":true,"status":"terminated","returncode":1}"#),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    let err = task
+        .wait_for_completion(2)
+        .await
+        .expect_err("non-zero returncode must fail");
+    assert_api_error_contains(err, "non-zero exit code 1");
+}
+
+#[tokio::test]
+async fn integration_wait_for_completion_rejects_http_500() {
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/task/new",
+        mock_ok(r#"{"success":true,"taskid":"mock-task"}"#),
+    );
+    routes.insert("/option/mock-task/set", mock_ok(r#"{"success":true}"#));
+    routes.insert(
+        "/scan/mock-task/status",
+        mock_status(r#"{"success":false,"message":"server blew up"}"#, 500),
+    );
+    let mock = MockApi::start(routes).await;
+    let engine = SqlmapEngine::with_config(
+        mock.port,
+        false,
+        None,
+        Duration::from_secs(10),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect("engine without local spawn");
+    let task = engine
+        .create_task(&scan_options())
+        .await
+        .expect("create task");
+
+    let err = task
+        .wait_for_completion(1)
+        .await
+        .expect_err("HTTP 500 on status must fail");
+    assert_api_error_contains(err, "HTTP 500");
 }
